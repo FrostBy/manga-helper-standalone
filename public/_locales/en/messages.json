@@ -1,0 +1,47 @@
+{
+  "extName": {
+    "message": "Manga Helper"
+  },
+  "extDescription": {
+    "message": "Cross-platform manga tracker"
+  },
+  "otherSites": {
+    "message": "Other sites"
+  },
+  "editLink": {
+    "message": "Edit link"
+  },
+  "fullLinkToTitle": {
+    "message": "Full link to title"
+  },
+  "save": {
+    "message": "Save"
+  },
+  "delete": {
+    "message": "Delete"
+  },
+  "cancel": {
+    "message": "Cancel"
+  },
+  "refresh": {
+    "message": "Refresh"
+  },
+  "editLinkTooltip": {
+    "message": "Edit link"
+  },
+  "searchPlaceholder": {
+    "message": "Search manga..."
+  },
+  "searching": {
+    "message": "Searching..."
+  },
+  "noResults": {
+    "message": "No results found"
+  },
+  "onboardingText": {
+    "message": "Click the extension icon to discover more features"
+  },
+  "onboardingClose": {
+    "message": "Got it"
+  }
+}

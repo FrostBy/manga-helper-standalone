@@ -1,0 +1,47 @@
+{
+  "extName": {
+    "message": "Manga Helper"
+  },
+  "extDescription": {
+    "message": "Кросс-платформенный трекер манги"
+  },
+  "otherSites": {
+    "message": "Другие сайты"
+  },
+  "editLink": {
+    "message": "Редактировать ссылку"
+  },
+  "fullLinkToTitle": {
+    "message": "Полная ссылка на тайтл"
+  },
+  "save": {
+    "message": "Сохранить"
+  },
+  "delete": {
+    "message": "Удалить"
+  },
+  "cancel": {
+    "message": "Отмена"
+  },
+  "refresh": {
+    "message": "Обновить"
+  },
+  "editLinkTooltip": {
+    "message": "Изменить ссылку"
+  },
+  "searchPlaceholder": {
+    "message": "Поиск манги..."
+  },
+  "searching": {
+    "message": "Поиск..."
+  },
+  "noResults": {
+    "message": "Ничего не найдено"
+  },
+  "onboardingText": {
+    "message": "Нажмите на иконку расширения, чтобы открыть больше возможностей"
+  },
+  "onboardingClose": {
+    "message": "Понятно"
+  }
+}

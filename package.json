@@ -1,0 +1,47 @@
+{
+  "name": "manga-helper",
+  "version": "2.0.0",
+  "description": "Cross-platform manga tracker",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "build:obf": "cross-env OBFUSCATE=true wxt build",
+    "build:obf:firefox": "cross-env OBFUSCATE=true wxt build -b firefox",
+    "prebuild": "node scripts/generate-icons.mjs",
+    "prebuild:obf": "node scripts/generate-icons.mjs",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "zip:obf": "cross-env OBFUSCATE=true wxt zip",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "keywords": [
+    "manga",
+    "browser-extension",
+    "preact"
+  ],
+  "author": "",
+  "license": "SEE LICENSE IN LICENSE",
+  "packageManager": "pnpm@10.13.1",
+  "dependencies": {
+    "@tippyjs/react": "^4.2.6",
+    "@wxt-dev/storage": "^1.2.6",
+    "preact": "^10.28.0",
+    "wxt": "^0.20.11",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.2",
+    "@types/chrome": "^0.1.32",
+    "@types/tippy.js": "^6.3.0",
+    "cross-env": "^10.1.0",
+    "javascript-obfuscator": "^5.1.0",
+    "rollup-plugin-obfuscator": "^1.1.0",
+    "sass": "^1.96.0",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3"
+  }
+}

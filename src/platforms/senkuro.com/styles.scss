@@ -1,0 +1,342 @@
+/* Senkuro platform styles */
+
+.senkuro {
+  .platforms-wrapper {
+    display: flex;
+  }
+
+  .platforms {
+    &.new::before {
+      content: '';
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      animation: pulse-senkuro 1.5s infinite;
+    }
+  }
+}
+
+/* Tippy theme for Senkuro - matches v-popper style exactly */
+.tippy-box[data-theme~='senkuro'] {
+  /* Solid color equivalent of --bg-quaternary on --bg-primary */
+  background: #1c1c1e;
+  border: 1px solid rgba(241, 241, 241, 0.051);
+  border-radius: 12px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.35);
+  color: rgba(241, 241, 241, 0.8);
+  z-index: 10;
+
+  .tippy-content {
+    padding: 0;
+  }
+
+  /* Arrow matching background */
+  .tippy-arrow {
+    color: #1c1c1e;
+
+    &::before {
+      border-bottom-color: #1c1c1e !important;
+    }
+  }
+}
+
+/* Dropdown menu styles for Senkuro - matches native .dropdown-menu--ind */
+.senkuro .dropdown-menu,
+.tippy-box[data-theme~='senkuro'] .dropdown-menu {
+  min-width: 280px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .platforms-dropdown {
+    .menu-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+  }
+
+  /* Menu item styled like Senkuro's button--flat */
+  .menu-item {
+    display: flex;
+    align-items: center;
+    padding: 0;
+    margin: 0;
+
+    &__text {
+      flex: 1;
+      min-width: 0;
+
+      /* Style links like button.button--flat.button--secondary */
+      a {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 10px 8px;
+        background: transparent;
+        border: none;
+        border-radius: 8px;
+        color: rgba(241, 241, 241, 0.8);
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 400;
+        text-align: left;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+
+        &:hover {
+          background-color: rgba(241, 241, 241, 0.08);
+          color: rgba(241, 241, 241, 1);
+        }
+      }
+    }
+
+    .platform-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .platform-stats {
+      margin-left: 12px;
+      font-size: 13px;
+      opacity: 0.7;
+      flex-shrink: 0;
+    }
+
+    .refresh-link,
+    .edit-link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 6px;
+      cursor: pointer;
+      color: rgba(241, 241, 241, 0.4);
+      transition: color 0.15s;
+
+      &:hover {
+        color: rgba(241, 241, 241, 1);
+      }
+
+      svg {
+        width: 14px;
+        height: 14px;
+      }
+    }
+  }
+
+  /* Divider matching Senkuro style */
+  .divider {
+    display: flex;
+    align-items: center;
+    margin: 4px 0;
+
+    &__line {
+      flex: 1;
+      height: 1px;
+      background: rgba(241, 241, 241, 0.051);
+    }
+  }
+}
+
+/* Chapter stats */
+.senkuro .chapter-stats,
+.tippy-box[data-theme~='senkuro'] .chapter-stats {
+  &.has-more {
+    color: #22c55e;
+    font-weight: 600;
+  }
+
+  small {
+    position: relative;
+    top: -1px;
+    opacity: 0.6;
+    margin-left: 0.25em;
+  }
+}
+
+/* Chapters tab stats */
+.senkuro .chapters-all {
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+/* Inline loader */
+.senkuro .inline-loader,
+.tippy-box[data-theme~='senkuro'] .inline-loader {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+
+  .loader {
+    width: 100%;
+    height: 100%;
+    animation: rotate 1.5s linear infinite;
+
+    .path {
+      stroke: currentColor;
+      stroke-dasharray: 1, 200;
+      stroke-dashoffset: 0;
+      animation: dash 1.5s ease-in-out infinite;
+    }
+  }
+}
+
+/* Modal styles for Senkuro - matches dark theme */
+.senkuro #edit-link-modal {
+  display: none;
+
+  &.is-open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal {
+    &__inner {
+      width: 100%;
+      max-width: 480px;
+      margin: 0 20px;
+    }
+
+    &__content {
+      background: #1c1c1e;
+      border: 1px solid rgba(241, 241, 241, 0.051);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    &__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(241, 241, 241, 0.051);
+    }
+
+    &__title {
+      font-size: 16px;
+      font-weight: 600;
+      color: rgba(241, 241, 241, 0.9);
+    }
+
+    &__close {
+      cursor: pointer;
+      color: rgba(241, 241, 241, 0.5);
+      transition: color 0.15s;
+
+      &:hover {
+        color: rgba(241, 241, 241, 1);
+      }
+
+      svg {
+        width: 18px;
+        height: 18px;
+        fill: currentColor;
+      }
+    }
+
+    &__body {
+      padding: 20px;
+    }
+  }
+
+  .form {
+    &__label {
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: rgba(241, 241, 241, 0.6);
+    }
+
+    &__input {
+      width: 100%;
+      padding: 12px 14px;
+      background: rgba(241, 241, 241, 0.05);
+      border: 1px solid rgba(241, 241, 241, 0.1);
+      border-radius: 8px;
+      font-size: 14px;
+      color: rgba(241, 241, 241, 0.9);
+      transition: border-color var(--transition, 0.15s);
+
+      &::placeholder {
+        color: rgba(241, 241, 241, 0.3);
+      }
+
+      &:focus {
+        outline: none;
+        border-color: var(--accent, #22c55e);
+      }
+    }
+
+    &__footer {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+  }
+
+  .btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+
+    svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    &:not(:active) {
+      transition: background var(--transition, 0.15s), color var(--transition, 0.15s), border-color var(--transition, 0.15s);
+    }
+
+    &.button_save {
+      background: var(--accent, #22c55e);
+      color: #f1f1f1;
+
+      &:hover {
+        filter: brightness(1.1);
+      }
+    }
+
+    &.button_clean {
+      background: transparent;
+      border: 1px solid rgba(241, 241, 241, 0.15);
+      color: rgba(241, 241, 241, 0.8);
+
+      &:hover {
+        background: rgba(241, 241, 241, 0.08);
+      }
+    }
+  }
+}
+
+@keyframes pulse-senkuro {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+}
+
