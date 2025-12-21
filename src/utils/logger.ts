@@ -1,7 +1,9 @@
 /**
  * Centralized logging system
- * Log level controlled via extension popup or browser.storage.local
+ * Log level controlled via extension popup or @wxt-dev/storage
  */
+
+import { storage } from '@wxt-dev/storage';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -11,7 +13,11 @@ export enum LogLevel {
   NONE = 999,
 }
 
-const STORAGE_KEY = 'manga-helper:log-level';
+// Typed storage item for log level (exported for popup)
+export const logLevelItem = storage.defineItem<LogLevel>('local:manga-helper-log-level', {
+  fallback: LogLevel.INFO,
+});
+
 let currentLevel: LogLevel = LogLevel.INFO;
 
 /**
@@ -19,15 +25,7 @@ let currentLevel: LogLevel = LogLevel.INFO;
  */
 export async function initLogger(): Promise<void> {
   // Load from extension storage
-  try {
-    const data = await browser.storage.local.get(STORAGE_KEY);
-    const level = data[STORAGE_KEY];
-    if (typeof level === 'number') {
-      currentLevel = level;
-    }
-  } catch {
-    // Storage not available, use default
-  }
+  currentLevel = await logLevelItem.getValue();
 
   // Listen for log level changes from popup
   try {

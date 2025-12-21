@@ -167,7 +167,7 @@ async function setupRefererRules() {
       });
     }
 
-    // Add rule for cover.imglib.info - add Referer header
+    // Add rules for protected domains
     await chrome.declarativeNetRequest.updateDynamicRules({
       addRules: [
         {

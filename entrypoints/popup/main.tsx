@@ -1,6 +1,11 @@
 import { render } from 'preact';
 import { useState, useCallback, useEffect } from 'preact/hooks';
+import { Island, useAds } from '@/src/islands/Island';
+import { logLevelItem, LogLevel } from '@/src/utils/logger';
+import { mangalibAPI, senkuroAPI, mangabuffAPI, readmangaAPI, inkstoryAPI } from '@/src/api';
 import './style.scss';
+
+const AD_SLOTS = ['popup-banner', 'popup-skyscraper'];
 
 type Theme = 'default' | 'mangalib' | 'senkuro';
 
@@ -20,8 +25,6 @@ interface GroupedResults {
   };
 }
 
-import { mangalibAPI, senkuroAPI, mangabuffAPI, readmangaAPI, inkstoryAPI } from '@/src/api';
-
 // Platform configs for popup search
 const PLATFORMS = {
   mangalib: { api: mangalibAPI, title: 'MangaLib' },
@@ -32,14 +35,12 @@ const PLATFORMS = {
 };
 
 const LOG_LEVELS = [
-  { value: 0, label: 'DEBUG' },
-  { value: 1, label: 'INFO' },
-  { value: 2, label: 'WARN' },
-  { value: 3, label: 'ERROR' },
-  { value: 999, label: 'OFF' },
+  { value: LogLevel.DEBUG, label: 'DEBUG' },
+  { value: LogLevel.INFO, label: 'INFO' },
+  { value: LogLevel.WARN, label: 'WARN' },
+  { value: LogLevel.ERROR, label: 'ERROR' },
+  { value: LogLevel.NONE, label: 'OFF' },
 ];
-
-const LOG_STORAGE_KEY = 'manga-helper:log-level';
 
 function App() {
   const [query, setQuery] = useState('');
@@ -47,16 +48,16 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [theme, setTheme] = useState<Theme>('default');
-  const [logLevel, setLogLevel] = useState(1); // INFO default
+  const [logLevel, setLogLevel] = useState<LogLevel>(LogLevel.INFO);
+  const [adKey, setAdKey] = useState(0);
+  const [showAdsInDev, setShowAdsInDev] = useState(false);
+
+  // Load ads with deduplication
+  const { ads } = useAds(AD_SLOTS, showAdsInDev, adKey);
 
   // Load log level from storage
   useEffect(() => {
-    browser.storage.local.get(LOG_STORAGE_KEY).then((data) => {
-      const level = data[LOG_STORAGE_KEY];
-      if (typeof level === 'number') {
-        setLogLevel(level);
-      }
-    }).catch(() => {});
+    logLevelItem.getValue().then(setLogLevel).catch(() => {});
   }, []);
 
   // Detect current tab's platform for theming
@@ -71,9 +72,9 @@ function App() {
     }).catch(() => {});
   }, []);
 
-  const handleLogLevelChange = async (newLevel: number) => {
+  const handleLogLevelChange = async (newLevel: LogLevel) => {
     setLogLevel(newLevel);
-    await browser.storage.local.set({ [LOG_STORAGE_KEY]: newLevel });
+    await logLevelItem.setValue(newLevel);
     // Notify active tab to update log level
     try {
       const tabs = await browser.tabs.query({ active: true, currentWindow: true });
@@ -127,11 +128,43 @@ function App() {
     browser.tabs.create({ url });
   };
 
+  const handleExportStorage = async () => {
+    const data = await browser.storage.local.get(null);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `manga-helper-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportStorage = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        await browser.storage.local.clear();
+        await browser.storage.local.set(data);
+        alert('Storage restored!');
+      } catch {
+        alert('Failed to import storage');
+      }
+    };
+    input.click();
+  };
+
   const totalResults = Object.values(results).reduce((sum, g) => sum + g.results.length, 0);
 
   return (
-    <div class={`popup theme-${theme}`}>
-      <div class="search-box">
+    <div class="popup-wrapper">
+      <div class={`popup theme-${theme}`}>
+        <div class="search-box">
         <input
           type="text"
           class="search-input"
@@ -169,14 +202,14 @@ function App() {
           ))}
       </div>
 
-      <div class="footer">
-        <div class="footer-row">
-          <div class="log-level-selector">
-            <span class="log-label">Logs:</span>
+      {import.meta.env.DEV && (
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <span class="toolbar-label">Logs:</span>
             <select
-              class="log-select"
+              class="toolbar-select"
               value={logLevel}
-              onChange={(e) => handleLogLevelChange(Number((e.target as HTMLSelectElement).value))}
+              onChange={(e) => handleLogLevelChange(Number((e.target as HTMLSelectElement).value) as LogLevel)}
             >
               {LOG_LEVELS.map((level) => (
                 <option key={level.value} value={level.value}>
@@ -185,9 +218,20 @@ function App() {
               ))}
             </select>
           </div>
+          <div class="toolbar-group">
+            <button class="toolbar-btn" onClick={handleExportStorage} title="Export storage">↓</button>
+            <button class="toolbar-btn" onClick={handleImportStorage} title="Import storage">↑</button>
+            <button class="toolbar-btn" onClick={() => { setShowAdsInDev(true); setAdKey(k => k + 1); }} title="Randomize ads">🎲</button>
+          </div>
         </div>
-        <div class="ad-placeholder">{/* Future ad space */}</div>
+      )}
+      {(ads['popup-banner']?.html || ads['popup-banner']?.fallback) && (
+        <div class="footer">
+          <Island slot="popup-banner" class="ad-placeholder" ad={ads['popup-banner']} />
+        </div>
+      )}
       </div>
+      <Island slot="popup-skyscraper" class="ad-skyscraper" ad={ads['popup-skyscraper']} />
     </div>
   );
 }
