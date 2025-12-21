@@ -14,6 +14,15 @@ importers:
       '@wxt-dev/storage':
         specifier: ^1.2.6
         version: 1.2.6
+      extension-ads:
+        specifier: github:FrostBy/extension-ads
+        version: https://codeload.github.com/FrostBy/extension-ads/tar.gz/b89cf153db9d1a32a419ee7fb8d43f18ebefda79
+      extension-ads-config:
+        specifier: github:FrostBy/extension-ads-config
+        version: https://codeload.github.com/FrostBy/extension-ads-config/tar.gz/6033d4b3defa0ba0f8b10742893f10d9dcb1185e
+      geo-profile:
+        specifier: github:FrostBy/geo-profile
+        version: https://codeload.github.com/FrostBy/geo-profile/tar.gz/c71104950ca444c614908b8b2130f3529ec56305
       preact:
         specifier: ^10.28.0
         version: 10.28.0
@@ -1090,6 +1099,10 @@ packages:
   core-util-is@1.0.3:
     resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
 
+  countries-and-timezones@3.8.0:
+    resolution: {integrity: sha512-+Ze9h5f4dQpUwbzTm0DEkiPiZyim9VHV4/mSnT4zNYJnrnfwsKjAZPtnp7J5VzejCDgySs+2SSc6MDdCnD43GA==}
+    engines: {node: '>=8.x', npm: '>=5.x'}
+
   cross-env@10.1.0:
     resolution: {integrity: sha512-GsYosgnACZTADcmEyJctkJIoqAhHjttw7RsFrVoJNXbsWWqaq6Ym+7kZjq6mS45O0jij6vtiReppKQEtqWy6Dw==}
     engines: {node: '>=20'}
@@ -1328,6 +1341,14 @@ packages:
   exsolve@1.0.8:
     resolution: {integrity: sha512-LmDxfWXwcTArk8fUEnOfSZpHOJ6zOMUJKOtFLFqJLoKJetuQG874Uc7/Kki7zFLzYybmZhp1M7+98pfMqeX8yA==}
 
+  extension-ads-config@https://codeload.github.com/FrostBy/extension-ads-config/tar.gz/6033d4b3defa0ba0f8b10742893f10d9dcb1185e:
+    resolution: {tarball: https://codeload.github.com/FrostBy/extension-ads-config/tar.gz/6033d4b3defa0ba0f8b10742893f10d9dcb1185e}
+    version: 1.0.0
+
+  extension-ads@https://codeload.github.com/FrostBy/extension-ads/tar.gz/b89cf153db9d1a32a419ee7fb8d43f18ebefda79:
+    resolution: {tarball: https://codeload.github.com/FrostBy/extension-ads/tar.gz/b89cf153db9d1a32a419ee7fb8d43f18ebefda79}
+    version: 1.0.0
+
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
 
@@ -1405,6 +1426,10 @@ packages:
   gensync@1.0.0-beta.2:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
+
+  geo-profile@https://codeload.github.com/FrostBy/geo-profile/tar.gz/c71104950ca444c614908b8b2130f3529ec56305:
+    resolution: {tarball: https://codeload.github.com/FrostBy/geo-profile/tar.gz/c71104950ca444c614908b8b2130f3529ec56305}
+    version: 1.0.0
 
   get-caller-file@2.0.5:
     resolution: {integrity: sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==}
@@ -3436,6 +3461,8 @@ snapshots:
 
   core-util-is@1.0.3: {}
 
+  countries-and-timezones@3.8.0: {}
+
   cross-env@10.1.0:
     dependencies:
       '@epic-web/invariant': 1.0.0
@@ -3647,6 +3674,10 @@ snapshots:
 
   exsolve@1.0.8: {}
 
+  extension-ads-config@https://codeload.github.com/FrostBy/extension-ads-config/tar.gz/6033d4b3defa0ba0f8b10742893f10d9dcb1185e: {}
+
+  extension-ads@https://codeload.github.com/FrostBy/extension-ads/tar.gz/b89cf153db9d1a32a419ee7fb8d43f18ebefda79: {}
+
   fast-deep-equal@3.1.3: {}
 
   fast-glob@3.3.3:
@@ -3716,6 +3747,10 @@ snapshots:
   generator-function@2.0.1: {}
 
   gensync@1.0.0-beta.2: {}
+
+  geo-profile@https://codeload.github.com/FrostBy/geo-profile/tar.gz/c71104950ca444c614908b8b2130f3529ec56305:
+    dependencies:
+      countries-and-timezones: 3.8.0
 
   get-caller-file@2.0.5: {}
 

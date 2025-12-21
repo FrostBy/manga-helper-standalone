@@ -17,3 +17,7 @@ sketch
 /.output/
 /.wxt/
 /public/*.png
+
+# Ads config (local override for dev)
+ads.local.json
+ads.json

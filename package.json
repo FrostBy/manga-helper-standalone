@@ -7,6 +7,7 @@
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
     "build": "wxt build",
+    "build:dev": "wxt build --mode development",
     "build:firefox": "wxt build -b firefox",
     "build:obf": "cross-env OBFUSCATE=true wxt build",
     "build:obf:firefox": "cross-env OBFUSCATE=true wxt build -b firefox",
@@ -16,19 +17,24 @@
     "zip:firefox": "wxt zip -b firefox",
     "zip:obf": "cross-env OBFUSCATE=true wxt zip",
     "typecheck": "tsc --noEmit",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "ads:local": "cp ../extension-ads-config/ads.json ./ads.local.json",
+    "link:local": "pnpm link ../extension-ads ../geo-profile ../extension-ads-config"
   },
   "keywords": [
     "manga",
     "browser-extension",
     "preact"
   ],
-  "author": "",
+  "author": "Vladislav Romanovsky (https://github.com/FrostBy)",
   "license": "SEE LICENSE IN LICENSE",
   "packageManager": "pnpm@10.13.1",
   "dependencies": {
     "@tippyjs/react": "^4.2.6",
     "@wxt-dev/storage": "^1.2.6",
+    "extension-ads": "github:FrostBy/extension-ads",
+    "extension-ads-config": "github:FrostBy/extension-ads-config",
+    "geo-profile": "github:FrostBy/geo-profile",
     "preact": "^10.28.0",
     "wxt": "^0.20.11",
     "zustand": "^5.0.9"
