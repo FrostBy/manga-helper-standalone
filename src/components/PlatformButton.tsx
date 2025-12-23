@@ -38,13 +38,14 @@ export function PlatformButton({
   const hasNewChapters = useMangaStore((s) => s.hasNewChapters);
   const tippyInstance = useRef<Tippy.Tippy | null>(null);
 
-  // Cleanup Tippy instance on unmount
+  // Cleanup Tippy instance on unmount (only if not already destroyed)
   useEffect(() => {
-    Logger.debug('PlatformButton', 'useEffect mounted');
     return () => {
-      Logger.debug('PlatformButton', 'useEffect cleanup', { hasInstance: !!tippyInstance.current });
-      tippyInstance.current?.destroy();
-      Logger.debug('PlatformButton', 'Tippy destroyed');
+      const instance = tippyInstance.current;
+      if (instance && !instance.state.isDestroyed) {
+        instance.destroy();
+      }
+      tippyInstance.current = null;
     };
   }, []);
 
