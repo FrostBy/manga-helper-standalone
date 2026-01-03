@@ -27,9 +27,9 @@
 |-----------|-------|--------|
 | MangaLib | mangalib.me | ✅ Полная поддержка |
 | Senkuro | senkuro.com | ✅ Полная поддержка |
-| MangaBuff | mangabuff.ru | ✅ Поиск и главы |
-| ReadManga | readmanga.io | ✅ Поиск и главы |
-| Inkstory | inkstory.net | ✅ Поиск и главы |
+| MangaBuff | mangabuff.ru | ✅ Полная поддержка |
+| ReadManga | readmanga.io | ✅ Полная поддержка |
+| Inkstory | inkstory.net | ✅ Полная поддержка |
 
 ## Установка
 
@@ -37,8 +37,8 @@
 
 1. Клонируйте репозиторий:
    ```bash
-   git clone https://github.com/popstas/manga-helper.git
-   cd manga-helper
+   git clone https://github.com/FrostBy/manga-helper-standalone.git
+   cd manga-helper-standalone
    ```
 
 2. Установите зависимости:

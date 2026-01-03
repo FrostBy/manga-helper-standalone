@@ -76,6 +76,42 @@ body {
     --accent: #5177ff;
     --accent-hover: #3d5fd9;
   }
+
+  // MangaBuff theme (purple)
+  &.theme-mangabuff {
+    --bg-primary: #181818;
+    --bg-secondary: #1f1f1f;
+    --bg-tertiary: #282828;
+    --bg-hover: #333;
+    --border-color: #333;
+    --input-border: #444;
+    --accent: #8b5cf6;
+    --accent-hover: #7c3aed;
+  }
+
+  // ReadManga theme
+  &.theme-readmanga {
+    --bg-primary: #1a1a1a;
+    --bg-secondary: #222;
+    --bg-tertiary: #2a2a2a;
+    --bg-hover: #333;
+    --border-color: #333;
+    --input-border: #444;
+    --accent: #4e7eb1;
+    --accent-hover: #3d6a9a;
+  }
+
+  // Inkstory theme
+  &.theme-inkstory {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #111;
+    --bg-tertiary: #1a1a1a;
+    --bg-hover: #222;
+    --border-color: #222;
+    --input-border: #333;
+    --accent: #2b7fff;
+    --accent-hover: #1a6be6;
+  }
 }
 
 .search-box {

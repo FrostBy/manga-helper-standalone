@@ -294,22 +294,57 @@ export class ReadMangaAPI extends BasePlatformAPI {
   }
 
   /**
-   * Get manga metadata
+   * Get manga metadata (with fetch)
    */
   async getManga(slug: string): Promise<Manga | null> {
     const url = `${BASE_URL}/${slug}`;
     const html = await this.fetch<string>(url);
-
     if (!html || typeof html !== 'string') return null;
+    return this.parseMangaHTML(html);
+  }
 
+  /**
+   * Parse manga metadata from HTML (no fetch)
+   */
+  parseMangaHTML(html: string): Manga | null {
     try {
-      // Parse title from h1.names
-      const titleMatch = html.match(/<h1[^>]*class="names"[^>]*>([^<]+)/);
-      const name = titleMatch ? titleMatch[1].trim() : slug;
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
 
-      return { slug, name };
+      // h1.names > .name - main title
+      const mainName = doc.querySelector('h1.names > .name');
+      const name = mainName?.textContent?.trim();
+      if (!name) return null;
+
+      const otherNames: string[] = [];
+
+      // h1.names .eng-name - english title
+      const engName = doc.querySelector('h1.names .eng-name');
+      if (engName?.textContent) otherNames.push(engName.textContent.trim());
+
+      // h1.names .original-name - original title
+      const origName = doc.querySelector('h1.names .original-name');
+      if (origName?.textContent) otherNames.push(origName.textContent.trim());
+
+      // .all-names-popover .name - all alternative names from popover
+      const popoverNames = doc.querySelectorAll('.all-names-popover .name');
+      popoverNames.forEach((el) => {
+        if (el.textContent) otherNames.push(el.textContent.trim());
+      });
+
+      // .another-names .expandable-text__text - alternative names separated by /
+      const altNamesEl = doc.querySelector('.another-names .expandable-text__text');
+      if (altNamesEl?.textContent) {
+        const altNames = altNamesEl.textContent.split('/').map((s) => s.trim()).filter(Boolean);
+        otherNames.push(...altNames);
+      }
+
+      // Dedupe
+      const uniqueOtherNames = [...new Set(otherNames)];
+
+      return { name, otherNames: uniqueOtherNames };
     } catch {
-      return { slug, name: slug };
+      return null;
     }
   }
 

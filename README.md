@@ -27,9 +27,9 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 |----------|--------|--------|
 | MangaLib | mangalib.me | ✅ Full support |
 | Senkuro | senkuro.com | ✅ Full support |
-| MangaBuff | mangabuff.ru | ✅ Search & chapters |
-| ReadManga | readmanga.io | ✅ Search & chapters |
-| Inkstory | inkstory.net | ✅ Search & chapters |
+| MangaBuff | mangabuff.ru | ✅ Full support |
+| ReadManga | readmanga.io | ✅ Full support |
+| Inkstory | inkstory.net | ✅ Full support |
 
 ## Installation
 
@@ -37,8 +37,8 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/popstas/manga-helper.git
-   cd manga-helper
+   git clone https://github.com/FrostBy/manga-helper-standalone.git
+   cd manga-helper-standalone
    ```
 
 2. Install dependencies:

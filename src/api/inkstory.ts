@@ -209,22 +209,39 @@ export class InkstoryAPI extends BasePlatformAPI {
   }
 
   /**
-   * Get manga metadata
+   * Get manga metadata (with fetch)
    */
   async getManga(slug: string): Promise<Manga | null> {
     const url = `${BASE_URL}/content/${slug}`;
     const html = await this.fetch<string>(url);
-
     if (!html || typeof html !== 'string') return null;
+    return this.parseMangaHTML(html);
+  }
 
+  /**
+   * Parse manga metadata from HTML (no fetch)
+   */
+  parseMangaHTML(html: string): Manga | null {
     try {
-      // Parse title
-      const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/);
-      const name = titleMatch ? titleMatch[1].trim() : slug;
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
 
-      return { slug, name };
+      // Parse title from h1
+      const h1 = doc.querySelector('h1');
+      const name = h1?.textContent?.trim();
+      if (!name) return null;
+
+      // Parse alternative names from p after h1
+      const otherNames: string[] = [];
+      const altP = h1?.nextElementSibling;
+      if (altP?.tagName === 'P' && altP.textContent) {
+        const alts = altP.textContent.split('/').map((s) => s.trim()).filter(Boolean);
+        otherNames.push(...alts);
+      }
+
+      return { name, otherNames };
     } catch {
-      return { slug, name: slug };
+      return null;
     }
   }
 

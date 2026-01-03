@@ -7,7 +7,7 @@ import './style.scss';
 
 const AD_SLOTS = ['popup-banner', 'popup-skyscraper'];
 
-type Theme = 'default' | 'mangalib' | 'senkuro';
+type Theme = 'default' | 'mangalib' | 'senkuro' | 'mangabuff' | 'readmanga' | 'inkstory';
 
 interface PopupSearchResult {
   platform: string;
@@ -68,6 +68,12 @@ function App() {
         setTheme('mangalib');
       } else if (url.includes('senkuro')) {
         setTheme('senkuro');
+      } else if (url.includes('mangabuff')) {
+        setTheme('mangabuff');
+      } else if (url.includes('readmanga') || url.includes('mintmanga') || url.includes('zazaza.me')) {
+        setTheme('readmanga');
+      } else if (url.includes('inkstory') || url.includes('manga.ovh')) {
+        setTheme('inkstory');
       }
     }).catch(() => {});
   }, []);

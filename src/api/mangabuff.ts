@@ -78,7 +78,7 @@ export class MangaBuffAPI extends BasePlatformAPI {
     for (const title of titles) {
       if (signal?.aborted) return null;
 
-      const slug = await this.searchByTitle(title);
+      const slug = await this.searchByTitle(title, titles);
       Logger.debug(this.config.key, 'Search result for title', { title, found: slug });
 
       if (slug) {
@@ -107,9 +107,9 @@ export class MangaBuffAPI extends BasePlatformAPI {
   }
 
   /**
-   * Search by single title with exact match
+   * Search by single title, match result against all known titles
    */
-  private async searchByTitle(title: string): Promise<string | null> {
+  private async searchByTitle(title: string, allTitles: string[]): Promise<string | null> {
     const url = `${BASE_URL}/search/suggestions?q=${encodeURIComponent(title)}`;
     const response = await this.fetch<MangaBuffSearchResult>(url);
 
@@ -118,8 +118,8 @@ export class MangaBuffAPI extends BasePlatformAPI {
       return null;
     }
 
-    // Find exact title match
-    const entity = response.find((e) => title === e.name);
+    // Find match against any of our titles (covers alt name scenarios)
+    const entity = response.find((e) => allTitles.includes(e.name));
     return entity?.slug ?? null;
   }
 
@@ -150,22 +150,39 @@ export class MangaBuffAPI extends BasePlatformAPI {
   }
 
   /**
-   * Get manga metadata
+   * Get manga metadata (with fetch)
    */
   async getManga(slug: string): Promise<Manga | null> {
     const url = `${BASE_URL}/manga/${slug}`;
     const html = await this.fetch<string>(url);
-
     if (!html || typeof html !== 'string') return null;
+    return this.parseMangaHTML(html);
+  }
 
+  /**
+   * Parse manga metadata from HTML (no fetch)
+   */
+  parseMangaHTML(html: string): Manga | null {
     try {
-      // Parse title from HTML
-      const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/);
-      const name = titleMatch ? titleMatch[1].trim() : slug;
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
 
-      return { slug, name };
+      // Parse title
+      const h1 = doc.querySelector('h1');
+      const name = h1?.textContent?.trim();
+      if (!name) return null;
+
+      // Parse alternative titles
+      const otherNames: string[] = [];
+      const altSpans = doc.querySelectorAll('.manga__name-alt span');
+      altSpans.forEach((span) => {
+        const text = span.textContent?.trim();
+        if (text) otherNames.push(text);
+      });
+
+      return { name, otherNames };
     } catch {
-      return { slug, name: slug };
+      return null;
     }
   }
 

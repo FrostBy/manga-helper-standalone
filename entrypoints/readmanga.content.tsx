@@ -7,6 +7,7 @@ import { ReadMangaRouter } from '@/src/platforms/readmanga.io';
 import { initLogger, Logger } from '@/src/utils';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/styles/shared.scss';
+import '@/src/platforms/readmanga.io/styles.scss';
 
 // Import all platform APIs to register them
 import '@/src/platforms/mangalib.me/api';

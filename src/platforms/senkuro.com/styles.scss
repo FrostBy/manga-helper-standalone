@@ -148,7 +148,7 @@
 .senkuro .chapter-stats,
 .tippy-box[data-theme~='senkuro'] .chapter-stats {
   &.has-more {
-    color: #22c55e;
+    color: var(--accent);
     font-weight: 600;
   }
 
@@ -187,144 +187,70 @@
   }
 }
 
-/* Modal styles for Senkuro - matches dark theme */
+/* Modal theme for Senkuro */
 .senkuro #edit-link-modal {
-  display: none;
-
   &.is-open {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(4px);
   }
 
-  .modal {
-    &__inner {
-      width: 100%;
-      max-width: 480px;
-      margin: 0 20px;
-    }
+  .modal__content {
+    background: #1c1c1e;
+    border: 1px solid rgba(241, 241, 241, 0.051);
+    border-radius: 12px;
+  }
 
-    &__content {
-      background: #1c1c1e;
-      border: 1px solid rgba(241, 241, 241, 0.051);
-      border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-    }
+  .modal__header {
+    border-bottom: 1px solid rgba(241, 241, 241, 0.051);
+  }
 
-    &__header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 16px 20px;
-      border-bottom: 1px solid rgba(241, 241, 241, 0.051);
-    }
+  .modal__title {
+    color: rgba(241, 241, 241, 0.9);
+  }
 
-    &__title {
-      font-size: 16px;
-      font-weight: 600;
-      color: rgba(241, 241, 241, 0.9);
-    }
+  .modal__close {
+    color: rgba(241, 241, 241, 0.5);
 
-    &__close {
-      cursor: pointer;
-      color: rgba(241, 241, 241, 0.5);
-      transition: color 0.15s;
-
-      &:hover {
-        color: rgba(241, 241, 241, 1);
-      }
-
-      svg {
-        width: 18px;
-        height: 18px;
-        fill: currentColor;
-      }
-    }
-
-    &__body {
-      padding: 20px;
+    &:hover {
+      opacity: 1;
+      color: rgba(241, 241, 241, 1);
     }
   }
 
-  .form {
-    &__label {
-      margin-bottom: 8px;
-      font-size: 14px;
-      color: rgba(241, 241, 241, 0.6);
-    }
-
-    &__input {
-      width: 100%;
-      padding: 12px 14px;
-      background: rgba(241, 241, 241, 0.05);
-      border: 1px solid rgba(241, 241, 241, 0.1);
-      border-radius: 8px;
-      font-size: 14px;
-      color: rgba(241, 241, 241, 0.9);
-      transition: border-color var(--transition, 0.15s);
-
-      &::placeholder {
-        color: rgba(241, 241, 241, 0.3);
-      }
-
-      &:focus {
-        outline: none;
-        border-color: var(--accent, #22c55e);
-      }
-    }
-
-    &__footer {
-      display: flex;
-      gap: 12px;
-      margin-top: 20px;
-    }
+  .form__label {
+    color: rgba(241, 241, 241, 0.6);
   }
 
-  .btn {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 12px 16px;
-    border: none;
+  .form__input {
+    background: rgba(241, 241, 241, 0.05);
+    border: 1px solid rgba(241, 241, 241, 0.1);
     border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
+    color: rgba(241, 241, 241, 0.9);
 
-    svg {
-      width: 14px;
-      height: 14px;
-      fill: currentColor;
+    &::placeholder {
+      color: rgba(241, 241, 241, 0.3);
     }
 
-    &:not(:active) {
-      transition: background var(--transition, 0.15s), color var(--transition, 0.15s), border-color var(--transition, 0.15s);
+    &:focus {
+      border-color: var(--accent, #22c55e);
     }
+  }
 
-    &.button_save {
-      background: var(--accent, #22c55e);
-      color: #f1f1f1;
+  .btn.button_save {
+    background: var(--accent, #22c55e);
+    color: #f1f1f1;
 
-      &:hover {
-        filter: brightness(1.1);
-      }
+    &:hover {
+      filter: brightness(1.1);
     }
+  }
 
-    &.button_clean {
-      background: transparent;
-      border: 1px solid rgba(241, 241, 241, 0.15);
-      color: rgba(241, 241, 241, 0.8);
+  .btn.button_clean {
+    background: transparent;
+    border: 1px solid rgba(241, 241, 241, 0.15);
+    color: rgba(241, 241, 241, 0.8);
 
-      &:hover {
-        background: rgba(241, 241, 241, 0.08);
-      }
+    &:hover {
+      background: rgba(241, 241, 241, 0.08);
     }
   }
 }

@@ -1,0 +1,133 @@
+/* MangaBuff platform styles */
+/* Adapts our component classes to MangaBuff's native dropdown look */
+
+/* Dropdown container */
+.dropdown-menu {
+  min-width: 232px;
+}
+
+/* Menu item layout */
+.menu-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 8px;
+
+  &:hover {
+    background-color: var(--medium-bg);
+  }
+}
+
+.menu-item__text {
+  flex: 1;
+  min-width: 0;
+
+  a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: inherit;
+  }
+}
+
+/* Platform name truncation */
+.platform-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Stats right-aligned */
+.platform-stats {
+  margin-left: auto;
+  opacity: 0.7;
+  font-size: 13px;
+}
+
+/* Icons 18px */
+.menu-item__icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Refresh/Edit links */
+.refresh-link,
+.edit-link {
+  cursor: pointer;
+  opacity: 0.6;
+  display: inline-flex;
+  align-items: center;
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* Chapter stats highlighting - need specificity to override anchor color */
+.menu-item a .chapter-stats.has-more {
+  font-weight: bold;
+  color: var(--purple-btn-bg);
+}
+
+.menu-item a:hover {
+  color: inherit;
+}
+
+/* Platform button alignment */
+.mangabuff .manga__controls .button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Modal theme for MangaBuff */
+.mangabuff #edit-link-modal {
+  .modal__content {
+    background: var(--grey-background);
+  }
+
+  .modal__header {
+    border-bottom: 1px solid var(--medium-bg);
+  }
+
+  .modal__title,
+  .modal__close {
+    color: var(--text-color);
+  }
+
+  .form__label {
+    color: var(--text-color);
+    opacity: 0.8;
+  }
+
+  .form__input {
+    background: var(--medium-bg);
+    border: 1px solid var(--medium-bg);
+    color: var(--text-color);
+
+    &:focus {
+      border-color: var(--purple-btn-bg);
+    }
+  }
+
+  .btn.button_save {
+    background: var(--purple-btn-bg);
+    color: #fff;
+
+    &:hover {
+      filter: brightness(1.1);
+    }
+  }
+
+  .btn.button_clean {
+    background: transparent;
+    color: var(--text-color);
+    border: 1px solid var(--medium-bg);
+
+    &:hover {
+      background: var(--medium-bg);
+    }
+  }
+}

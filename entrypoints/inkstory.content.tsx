@@ -9,6 +9,7 @@ import { InkstoryRouter } from '@/src/platforms/inkstory.net';
 import { initLogger, Logger } from '@/src/utils';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/styles/shared.scss';
+import '@/src/platforms/inkstory.net/styles.scss';
 
 // Import all platform APIs to register them
 import '@/src/platforms/mangalib.me/api';

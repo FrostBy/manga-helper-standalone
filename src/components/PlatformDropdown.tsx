@@ -32,7 +32,7 @@ export function PlatformDropdown({ onRefresh }: Props) {
   });
 
   return (
-    <div class="dropdown-menu">
+    <div class="dropdown-menu mh-dropdown">
       <div class="platforms-dropdown">
         <div class="menu">
           <div class="menu-list scrollable">

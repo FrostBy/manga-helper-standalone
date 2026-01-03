@@ -1,6 +1,6 @@
 {
   "name": "manga-helper",
-  "version": "2025.12.23",
+  "version": "2026.01.04",
   "description": "Cross-platform manga tracker",
   "type": "module",
   "scripts": {
@@ -30,12 +30,12 @@
   "license": "SEE LICENSE IN LICENSE",
   "packageManager": "pnpm@10.13.1",
   "dependencies": {
-    "@tippyjs/react": "^4.2.6",
     "@wxt-dev/storage": "^1.2.6",
     "extension-ads": "github:FrostBy/extension-ads",
     "extension-ads-config": "github:FrostBy/extension-ads-config",
     "geo-profile": "github:FrostBy/geo-profile",
     "preact": "^10.28.0",
+    "tippy.js": "^6.3.7",
     "wxt": "^0.20.11",
     "zustand": "^5.0.9"
   },

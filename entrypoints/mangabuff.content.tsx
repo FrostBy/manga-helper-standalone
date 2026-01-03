@@ -7,6 +7,7 @@ import { MangaBuffRouter } from '@/src/platforms/mangabuff.ru';
 import { initLogger, Logger } from '@/src/utils';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/styles/shared.scss';
+import '@/src/platforms/mangabuff.ru/styles.scss';
 
 // Import all platform APIs to register them
 import '@/src/platforms/mangalib.me/api';
@@ -22,6 +23,9 @@ export default defineContentScript({
   async main() {
     await initLogger();
     Logger.info('MangaBuff', 'Content script loaded');
+
+    // Add class for platform-specific styles
+    document.body.classList.add('mangabuff');
 
     // Mount onboarding tooltip
     const onboardingContainer = document.createElement('div');
