@@ -101,21 +101,20 @@ function App() {
     const searches = Object.entries(PLATFORMS).map(async ([key, { api, title }]) => {
       try {
         const results = await api.searchByQuery(query.trim());
-        if (results.length > 0) {
-          grouped[key] = {
-            title,
-            results: results.map((r) => ({
-              platform: title,
-              platformKey: key,
-              title: r.title,
-              url: api.link(r.slug),
-              slug: r.slug,
-              image: r.image,
-            })),
-          };
-        }
+        grouped[key] = {
+          title,
+          results: results.map((r) => ({
+            platform: title,
+            platformKey: key,
+            title: r.title,
+            url: api.link(r.slug),
+            slug: r.slug,
+            image: r.image,
+          })),
+        };
       } catch (e) {
         console.error(`Search failed for ${key}:`, e);
+        grouped[key] = { title, results: [] };
       }
     });
 
@@ -193,16 +192,22 @@ function App() {
         )}
 
         {!loading &&
-          Object.entries(results).map(([key, group]) => (
+          Object.entries(results)
+            .sort(([, a], [, b]) => (b.results.length > 0 ? 1 : 0) - (a.results.length > 0 ? 1 : 0))
+            .map(([key, group]) => (
             <div class="platform-group" key={key}>
               <div class="platform-header">{group.title}</div>
               <div class="platform-results">
-                {group.results.map((result, i) => (
-                  <div class="result-item" key={i} onClick={() => openLink(result.url)}>
-                    {result.image && <img class="result-thumb" src={result.image} alt="" />}
-                    <span class="result-title">{result.title}</span>
-                  </div>
-                ))}
+                {group.results.length === 0 ? (
+                  <div class="platform-no-results">{browser.i18n.getMessage('notFound') || 'Not found'}</div>
+                ) : (
+                  group.results.map((result, i) => (
+                    <div class="result-item" key={i} onClick={() => openLink(result.url)}>
+                      {result.image && <img class="result-thumb" src={result.image} alt="" />}
+                      <span class="result-title">{result.title}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           ))}

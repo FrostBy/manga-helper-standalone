@@ -38,6 +38,9 @@
   "noResults": {
     "message": "No results found"
   },
+  "notFound": {
+    "message": "Not found"
+  },
   "onboardingText": {
     "message": "Click the extension icon to discover more features"
   },
