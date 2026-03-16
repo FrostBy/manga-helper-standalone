@@ -4,4 +4,5 @@ export const config: PlatformConfig = {
   key: 'mangalib',
   domain: 'mangalib.me',
   title: 'MangaLib',
+  mirrors: ['hentailib.me'],
 };

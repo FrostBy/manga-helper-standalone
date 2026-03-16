@@ -6,11 +6,18 @@ const useObfuscation = process.env.OBFUSCATE === 'true';
 
 export default defineConfig({
   manifest: {
-    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA499IlT2UvFUVgUytVyvr8ICsCqEtK2aeiSPFCqmI7Q96PNQ2iWljkLKKZxahaYrAgaIXDAqOHrZEAJenf1z+gjGXUE0wqXgyw5wnb0Yz9ZHnix/MKPGO5Q1e9wqE08MZszaE+9VLqPURvlEuSkolgMCyTYVEYu6/jRiPsWOLjoxRX2KKnkxJ7jyU6Zk6mQfM8U4krs+OAjYGrvTGlzTUuDz+KqT+XPLT9y3yr9WsxG1Tkg0q8qOKwtEo8AzQB3drx2z5qYjAk3pCjNepokInG3xVgSQroM0rRzPb9aCWp3JL3MWEAQElPCL9uetpAdj/u6x236xQwnQPgnNDpIbViQIDAQAB',
+    key:
+      'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqYK644e0iT56Udd7rKn7' +
+      'w+6MlD7kIkCOFbaRRYZKPTRVXqfODSkSoRtKP1pd44lTaWmE3uRcQkLG66q7MFnd' +
+      'q9x+eMZ0vpRy+wG3h0rxEtkoOqulHphILJo+7edC0AJVst9lxl40dFaQLjfMF0bY' +
+      'zw/bB6TdsWD1Fnhuqa2gu6m5JEVwkupsOi93oMZRYInSZdxAi/AnDjTOJoCqb5qE' +
+      'Hy7Orw4vu8j7VcbM+PZIfSEK5urDfPG/yXzqGDTKyg8YfOsgDFPHoQmeg7oivCEN' +
+      '8D9S3yVQ8rP3fBlcSn0mMQw99Pt00WKeTzKo+lL0w8jVo5MJoDbobDdscwCPpPY2' +
+      'EQIDAQAB',
     name: '__MSG_extName__',
     description: '__MSG_extDescription__',
     default_locale: 'en',
-    version: '2026.01.04.01',
+    version: '2026.02.07',
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -20,7 +27,9 @@ export default defineConfig({
     permissions: ['storage', 'tabs', 'declarativeNetRequest'],
     host_permissions: [
       '*://*.mangalib.me/*',
+      '*://*.hentailib.me/*',
       '*://api.cdnlibs.org/*',
+      '*://hapi.hentaicdn.org/*',
       '*://cover.imglib.info/*',
       '*://*.senkuro.com/*',
       '*://api.senkuro.com/*',

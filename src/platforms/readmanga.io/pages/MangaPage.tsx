@@ -11,11 +11,13 @@ import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
 import { getAPI, readmangaAPI } from '@/src/api';
 import { Logger } from '@/src/utils/logger';
 import type { PlatformKey } from '@/src/types';
-import { PlatformButton, EditModal } from '@/src/components';
+import { BootstrapPlatformButton, EditModal } from '@/src/components';
 
 export class MangaPage extends BasePage {
   private buttonContainer: HTMLElement | null = null;
   private modalContainer: HTMLElement | null = null;
+  private chaptersTab: HTMLElement | null = null;
+  private chaptersStatsContainer: HTMLElement | null = null;
   private unsubscribeStore: (() => void) | null = null;
 
   protected async initialize(): Promise<void> {
@@ -34,11 +36,57 @@ export class MangaPage extends BasePage {
 
   async render(): Promise<void> {
     Logger.debug('ReadManga', 'render started');
+
+    // Select chapters tab on load
+    this.selectChaptersTab();
+
+    // Render reading progress in chapters tab
+    this.renderChaptersInTab();
+
     await this.renderPlatformButton();
     Logger.debug('ReadManga', 'renderPlatformButton done');
     this.renderModal();
     this.loadAllPlatformsData();
     this.subscribeToStoreChanges();
+  }
+
+  /**
+   * Click the "Chapters" tab to show chapters list on load
+   */
+  private selectChaptersTab(): void {
+    const tabItems = document.querySelectorAll('.cr-tabs-list__item[data-toggle="tab"]');
+    for (const tab of tabItems) {
+      if (tab.getAttribute('data-target') === '#tab-content') {
+        this.chaptersTab = tab as HTMLElement;
+        (tab as HTMLElement).click();
+        break;
+      }
+    }
+  }
+
+  /**
+   * Render reading progress in the chapters tab label.
+   * Site already shows total count — we only add [read] progress.
+   */
+  private renderChaptersInTab(): void {
+    if (!this.chaptersTab) return;
+
+    const { lastChapterRead } = useMangaStore.getState();
+
+    const label = this.chaptersTab.querySelector('.cr-tabs-list__label');
+    if (!label) return;
+
+    if (!this.chaptersStatsContainer) {
+      this.chaptersStatsContainer = document.createElement('span');
+      label.after(this.chaptersStatsContainer);
+    }
+
+    render(
+      lastChapterRead > 0
+        ? <small class="chapters-all"> [{lastChapterRead}]</small>
+        : null,
+      this.chaptersStatsContainer
+    );
   }
 
   private async fetchMangaData(slug: string) {
@@ -58,29 +106,26 @@ export class MangaPage extends BasePage {
   }
 
   private async renderPlatformButton(): Promise<void> {
-    const readFirstChapter = await waitForElement('.read-first-chapter');
-    if (!readFirstChapter) return;
+    // Place after the "..." dropdown inside .cr-actions
+    const actionsDropdown = await waitForElement('.cr-actions > .dropdown');
+    if (!actionsDropdown) return;
+
+    // Widen .cr-actions to fit our button
+    const crActions = actionsDropdown.parentElement;
+    if (crActions) crActions.style.maxWidth = '550px';
 
     this.buttonContainer = document.createElement('div');
-    this.buttonContainer.style.marginTop = '8px';
-    readFirstChapter.after(this.buttonContainer);
+    this.buttonContainer.style.display = 'contents';
+    actionsDropdown.after(this.buttonContainer);
 
-    const container = this.buttonContainer;
     render(
-      <PlatformButton
-        theme="dropdown"
-        placement="bottom-start"
-        appendTo={() => container}
-        zIndex={9999}
-        animation="fade"
-        showOnMount={true}
-        injectCSS={true}
+      <BootstrapPlatformButton
         onRefresh={(key) => this.handleRefresh(key)}
-        className="btn btn-outline-secondary btn-lg btn-block"
+        className="btn btn-lg btn-secondary d-flex align-items-center gap-1"
       >
         <PlatformsIcon />
-        <span style={{ marginLeft: '8px' }}>{t('otherSites')}</span>
-      </PlatformButton>,
+        <span>{t('otherSites')}</span>
+      </BootstrapPlatformButton>,
       this.buttonContainer
     );
   }
@@ -100,8 +145,10 @@ export class MangaPage extends BasePage {
 
   private subscribeToStoreChanges(): void {
     this.unsubscribeStore?.();
-    this.unsubscribeStore = useMangaStore.subscribe(() => {
-      // Re-render if needed
+    this.unsubscribeStore = useMangaStore.subscribe((state, prevState) => {
+      if (state.chapters !== prevState.chapters || state.lastChapterRead !== prevState.lastChapterRead) {
+        this.renderChaptersInTab();
+      }
     });
   }
 
@@ -178,6 +225,12 @@ export class MangaPage extends BasePage {
         await (api as any).getData(targetSlug);
       }
       store.setLoading(platformKey, false);
+
+      // Refresh auto-mapping TTL so loadCachedResult can resolve the slug
+      if (!manualLinks[platformKey] && autoLinks[platformKey]) {
+        await store.saveAutoMapping(platformKey, targetSlug);
+      }
+
       await store.loadCachedResult(platformKey);
     } else {
       if (autoLinks[platformKey] === false) {
@@ -235,6 +288,15 @@ export class MangaPage extends BasePage {
       }
       this.modalContainer = null;
     }
+
+    if (this.chaptersStatsContainer) {
+      render(null, this.chaptersStatsContainer);
+      if (this.chaptersStatsContainer.isConnected) {
+        this.chaptersStatsContainer.remove();
+      }
+      this.chaptersStatsContainer = null;
+    }
+    this.chaptersTab = null;
 
     useMangaStore.getState().reset();
   }

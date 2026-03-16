@@ -311,28 +311,43 @@ export class ReadMangaAPI extends BasePlatformAPI {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
-      // h1.names > .name - main title
-      const mainName = doc.querySelector('h1.names > .name');
+      // New layout: h1.cr-hero-names__main, fallback to old: h1.names > .name
+      const mainName = doc.querySelector('h1.cr-hero-names__main')
+        ?? doc.querySelector('h1.names > .name');
       const name = mainName?.textContent?.trim();
       if (!name) return null;
 
       const otherNames: string[] = [];
 
-      // h1.names .eng-name - english title
+      // New layout: h3.cr-hero-names__alt contains spans with titles separated by spans.cr-hero-names__alt-separator
+      const altContainer = doc.querySelector('h3.cr-hero-names__alt > span');
+      if (altContainer) {
+        const spans = altContainer.querySelectorAll(':scope > span:not(.cr-hero-names__alt-separator)');
+        spans.forEach((el) => {
+          const text = el.textContent?.trim();
+          if (text) {
+            // Last span may contain multiple names separated by /
+            if (text.includes('/')) {
+              otherNames.push(...text.split('/').map((s) => s.trim()).filter(Boolean));
+            } else {
+              otherNames.push(text);
+            }
+          }
+        });
+      }
+
+      // Old layout fallbacks
       const engName = doc.querySelector('h1.names .eng-name');
       if (engName?.textContent) otherNames.push(engName.textContent.trim());
 
-      // h1.names .original-name - original title
       const origName = doc.querySelector('h1.names .original-name');
       if (origName?.textContent) otherNames.push(origName.textContent.trim());
 
-      // .all-names-popover .name - all alternative names from popover
       const popoverNames = doc.querySelectorAll('.all-names-popover .name');
       popoverNames.forEach((el) => {
         if (el.textContent) otherNames.push(el.textContent.trim());
       });
 
-      // .another-names .expandable-text__text - alternative names separated by /
       const altNamesEl = doc.querySelector('.another-names .expandable-text__text');
       if (altNamesEl?.textContent) {
         const altNames = altNamesEl.textContent.split('/').map((s) => s.trim()).filter(Boolean);

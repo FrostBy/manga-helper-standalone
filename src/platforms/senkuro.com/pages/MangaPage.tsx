@@ -243,6 +243,12 @@ export class MangaPage extends BasePage {
         await (api as any).getData(targetSlug);
       }
       store.setLoading(platformKey, false);
+
+      // Refresh auto-mapping TTL so loadCachedResult can resolve the slug
+      if (!manualLinks[platformKey] && autoLinks[platformKey]) {
+        await store.saveAutoMapping(platformKey, targetSlug);
+      }
+
       await store.loadCachedResult(platformKey);
     } else {
       if (autoLinks[platformKey] === false) {

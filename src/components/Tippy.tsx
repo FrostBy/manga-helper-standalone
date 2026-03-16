@@ -43,7 +43,9 @@ export function Tippy({ children, content, injectCSS = false, ...props }: TippyP
     });
 
     return () => {
-      instanceRef.current?.destroy();
+      if (instanceRef.current && !instanceRef.current.state.isDestroyed) {
+        instanceRef.current.destroy();
+      }
       render(null, container);
     };
   }, []);

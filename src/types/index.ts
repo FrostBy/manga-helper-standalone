@@ -187,4 +187,5 @@ export interface PlatformConfig {
   domain: string;
   title: string;
   color?: string;
+  mirrors?: string[];
 }

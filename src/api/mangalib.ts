@@ -7,7 +7,21 @@ import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
-const API_BASE = 'https://api.cdnlibs.org/api/manga';
+const DEFAULT_API_BASE = 'https://api.cdnlibs.org/api/manga';
+
+interface MirrorConfig {
+  apiBase: string;
+  siteId: string;
+  tokenKey: string;
+}
+
+export const MANGALIB_MIRROR_CONFIGS: Record<string, MirrorConfig> = {
+  'hentailib.me': {
+    apiBase: 'https://hapi.hentaicdn.org/api/manga',
+    siteId: '4',
+    tokenKey: 'hentailib',
+  },
+};
 
 /**
  * MangaLib Search API Response DTO
@@ -100,8 +114,23 @@ export class MangaLibAPI extends BasePlatformAPI {
     title: 'Mangalib',
   };
 
+  private apiBase = DEFAULT_API_BASE;
+  private siteId = '1';
+  private domainUrl = 'https://mangalib.me';
+
+  /** Apply mirror config by domain */
+  applyMirror(domain: string): void {
+    const mirror = MANGALIB_MIRROR_CONFIGS[domain];
+    if (mirror) {
+      this.apiBase = mirror.apiBase;
+      this.siteId = mirror.siteId;
+      this.domainUrl = `https://${domain}`;
+      this.tokenKey = mirror.tokenKey;
+    }
+  }
+
   link(slug: string): string {
-    return `https://mangalib.me/ru/manga/${slug}`;
+    return `${this.domainUrl}/ru/manga/${slug}`;
   }
 
   getSlugFromURL(url: string): string | null {
@@ -123,8 +152,7 @@ export class MangaLibAPI extends BasePlatformAPI {
 
     const token = await this.getToken();
     const headers: Record<string, string> = {
-      'site-id': '1',
-      'Referer': 'https://mangalib.me/',
+      'site-id': this.siteId,
     };
 
     if (token) {
@@ -137,10 +165,10 @@ export class MangaLibAPI extends BasePlatformAPI {
 
       const params = new URLSearchParams({
         q: title,
-        'site_id[]': '1', // mangalib
+        'site_id[]': this.siteId,
       });
 
-      const url = `${API_BASE}?${params}`;
+      const url = `${this.apiBase}?${params}`;
       const response = await this.fetch<{ data?: Array<{ slug_url?: string }> }>(url, { headers });
 
       Logger.debug(this.config.key, 'Search result for title', { title, found: response?.data?.[0]?.slug_url ?? null });
@@ -175,15 +203,14 @@ export class MangaLibAPI extends BasePlatformAPI {
   async getManga(slug: string): Promise<Manga | null> {
     const token = await this.getToken();
     const headers: Record<string, string> = {
-      'site-id': '1',
-      'Referer': 'https://mangalib.me/',
+      'site-id': this.siteId,
     };
 
     if (token) {
       headers['authorization'] = `Bearer ${token}`;
     }
 
-    const url = `${API_BASE}/${slug}?fields[]=eng_name&fields[]=otherNames`;
+    const url = `${this.apiBase}/${slug}?fields[]=eng_name&fields[]=otherNames`;
     const response = await this.fetch<MangaLibMeta>(url, { headers });
 
     if (!response?.data) return null;
@@ -205,15 +232,14 @@ export class MangaLibAPI extends BasePlatformAPI {
   async getChapters(slug: string): Promise<ChaptersResponse | null> {
     const token = await this.getToken();
     const headers: Record<string, string> = {
-      'site-id': '1',
-      'Referer': 'https://mangalib.me/',
+      'site-id': this.siteId,
     };
 
     if (token) {
       headers['authorization'] = `Bearer ${token}`;
     }
 
-    const url = `${API_BASE}/${slug}/chapters`;
+    const url = `${this.apiBase}/${slug}/chapters`;
     return this.fetch<ChaptersResponse>(url, { headers });
   }
 
@@ -227,12 +253,11 @@ export class MangaLibAPI extends BasePlatformAPI {
     if (!token) return null;
 
     const headers: Record<string, string> = {
-      'site-id': '1',
-      'Referer': 'https://mangalib.me/',
+      'site-id': this.siteId,
       'authorization': `Bearer ${token}`,
     };
 
-    const url = `${API_BASE}/${slug}/bookmark`;
+    const url = `${this.apiBase}/${slug}/bookmark`;
     const response = await this.fetch<MangaLibBookmarkResponse>(url, { headers });
 
     if (!response?.data?.item) return null;
@@ -280,9 +305,9 @@ export class MangaLibAPI extends BasePlatformAPI {
    * Simple search by query - for popup use
    */
   async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }>> {
-    const params = new URLSearchParams({ q: query, 'site_id[]': '1' });
-    const url = `${API_BASE}?${params}`;
-    const response = await this.fetch<MangaLibSearchResponse>(url, { headers: { 'site-id': '1' } });
+    const params = new URLSearchParams({ q: query, 'site_id[]': this.siteId });
+    const url = `${this.apiBase}?${params}`;
+    const response = await this.fetch<MangaLibSearchResponse>(url, { headers: { 'site-id': this.siteId } });
 
     if (!response?.data) return [];
 

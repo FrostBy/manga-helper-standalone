@@ -153,13 +153,27 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Setup declarativeNetRequest rules to add Referer headers for protected image domains
+ * Referer rules config — add new entries here as needed.
+ * resourceTypes defaults to xmlhttprequest+other; override for images etc.
+ */
+const REFERER_RULES: Array<{
+  urlFilter: string;
+  referer: string;
+  resourceTypes?: chrome.declarativeNetRequest.ResourceType[];
+}> = [
+  { urlFilter: '||cover.imglib.info/*', referer: 'https://mangalib.me/', resourceTypes: [chrome.declarativeNetRequest.ResourceType.IMAGE] },
+  { urlFilter: '||api.cdnlibs.org/*', referer: 'https://mangalib.me/' },
+  { urlFilter: '||hapi.hentaicdn.org/*', referer: 'https://hentailib.me/' },
+];
+
+/**
+ * Setup declarativeNetRequest rules to inject Referer headers.
+ * Referer is a forbidden header in fetch(), so declarativeNetRequest is the only way.
  */
 async function setupRefererRules() {
   try {
-    // Remove old rules first
     const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
-    const existingIds = existingRules.map((r: { id: any; }) => r.id);
+    const existingIds = existingRules.map((r) => r.id);
 
     if (existingIds.length > 0) {
       await chrome.declarativeNetRequest.updateDynamicRules({
@@ -167,31 +181,31 @@ async function setupRefererRules() {
       });
     }
 
-    // Add rules for protected domains
-    await chrome.declarativeNetRequest.updateDynamicRules({
-      addRules: [
-        {
-          id: 1,
-          priority: 1,
-          action: {
-            type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
-            requestHeaders: [
-              {
-                header: 'Referer',
-                operation: chrome.declarativeNetRequest.HeaderOperation.SET,
-                value: 'https://mangalib.me/',
-              },
-            ],
+    const addRules = REFERER_RULES.map((rule, i) => ({
+      id: i + 1,
+      priority: 1,
+      action: {
+        type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
+        requestHeaders: [
+          {
+            header: 'Referer',
+            operation: chrome.declarativeNetRequest.HeaderOperation.SET,
+            value: rule.referer,
           },
-          condition: {
-            urlFilter: '||cover.imglib.info/*',
-            resourceTypes: [chrome.declarativeNetRequest.ResourceType.IMAGE],
-          },
-        },
-      ],
-    });
+        ],
+      },
+      condition: {
+        urlFilter: rule.urlFilter,
+        resourceTypes: rule.resourceTypes ?? [
+          chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
+          chrome.declarativeNetRequest.ResourceType.OTHER,
+        ],
+      },
+    }));
 
-    console.log('[Background] Referer rules configured');
+    await chrome.declarativeNetRequest.updateDynamicRules({ addRules });
+
+    console.log('[Background] Referer rules configured:', addRules.length);
   } catch (error) {
     console.error('[Background] Failed to setup referer rules:', error);
   }

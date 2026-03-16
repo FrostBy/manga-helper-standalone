@@ -1,136 +1,54 @@
-import { useMappingsStore } from '@/src/stores/mappings';
-import { useMangaStore } from '@/src/stores/manga';
-import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
 import { t } from '@/src/utils';
 import type { PlatformKey } from '@/src/types';
-import type { BasePlatformAPI } from '@/src/api/base';
 import { ChapterStats } from './ChapterStats';
+import { usePlatformItems } from './usePlatformItems';
 
 interface Props {
   onRefresh: (platformKey: PlatformKey) => void;
 }
 
 export function PlatformDropdown({ onRefresh }: Props) {
-  const currentPlatform = useMappingsStore((s) => s.currentPlatform);
-  const cachedResults = useMappingsStore((s) => s.cachedResults);
-  const loadingPlatforms = useMappingsStore((s) => s.loadingPlatforms);
-  const manualLinks = useMappingsStore((s) => s.manualLinks);
-  const autoLinks = useMappingsStore((s) => s.autoLinks);
-
-  const openModal = useMangaStore((s) => s.openModal);
-  const freeChapters = useMangaStore((s) => s.freeChapters);
-
-  if (!currentPlatform) return null;
-
-  const platforms = PlatformRegistry.getOthers(currentPlatform as PlatformKey);
-
-  // Sort platforms by chapter count (descending)
-  const sortedPlatforms = Array.from(platforms.entries()).sort(([keyA], [keyB]) => {
-    const chapterA = cachedResults[keyA]?.chapter ?? 0;
-    const chapterB = cachedResults[keyB]?.chapter ?? 0;
-    return chapterB - chapterA;
-  });
+  const items = usePlatformItems(onRefresh);
+  if (!items) return null;
 
   return (
     <div class="dropdown-menu mh-dropdown">
       <div class="platforms-dropdown">
         <div class="menu">
           <div class="menu-list scrollable">
-            {sortedPlatforms.map(([key, api]) => {
-              const targetSlug = manualLinks[key] ?? autoLinks[key];
-              const cached = cachedResults[key];
-              const isLoading = loadingPlatforms.has(key);
-              const hasMapping = targetSlug && typeof targetSlug === 'string';
-              const url = hasMapping ? api.link(targetSlug) : `https://${api.config.domain}`;
-              const modalUrl = hasMapping ? api.link(targetSlug) : '';
-
-              const platformChapter = cached?.chapter ?? 0;
-              const hasMore = platformChapter > freeChapters;
-
-              return (
-                <PlatformItem
-                  key={key}
-                  platformKey={key}
-                  platform={api}
-                  url={url}
-                  chapter={platformChapter}
-                  lastChapterRead={cached?.lastChapterRead ?? 0}
-                  isLoading={isLoading}
-                  found={typeof targetSlug === 'string'}
-                  hasMore={hasMore}
-                  onRefresh={() => onRefresh(key)}
-                  onEdit={() => openModal(key, modalUrl)}
-                />
-              );
-            })}
+            {items.map((item) => (
+              <div class="menu-item" key={item.key} data-platform-key={item.key}>
+                <div class="menu-item__text">
+                  <a href={item.url} style={{ opacity: item.found || item.isLoading ? 1 : 0.6 }}>
+                    <span class="platform-name">{item.api.config.title}</span>
+                    {item.isLoading ? (
+                      <span class="platform-stats"><InlineLoader /></span>
+                    ) : (
+                      <ChapterStats total={item.chapter} read={item.lastChapterRead} hasMore={item.hasMore} className="platform-stats" />
+                    )}
+                  </a>
+                </div>
+                <span
+                  class="refresh-link"
+                  title={t('refresh')}
+                  style={{ pointerEvents: item.isLoading ? 'none' : 'auto', opacity: item.isLoading ? 0.3 : undefined }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!item.isLoading) item.onRefresh(); }}
+                >
+                  <RefreshIcon />
+                </span>
+                <span
+                  class="edit-link"
+                  title={t('editLinkTooltip')}
+                  style={{ pointerEvents: item.isLoading ? 'none' : 'auto', opacity: item.isLoading ? 0.3 : undefined }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!item.isLoading) item.onEdit(); }}
+                >
+                  <EditIcon />
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-interface PlatformItemProps {
-  platformKey: PlatformKey;
-  platform: BasePlatformAPI;
-  url: string;
-  chapter: number;
-  lastChapterRead: number;
-  isLoading: boolean;
-  found: boolean;
-  hasMore: boolean;
-  onRefresh: () => void;
-  onEdit: () => void;
-}
-
-function PlatformItem({
-  platformKey,
-  platform,
-  url,
-  chapter,
-  lastChapterRead,
-  isLoading,
-  found,
-  hasMore,
-  onRefresh,
-  onEdit,
-}: PlatformItemProps) {
-  return (
-    <div class="menu-item" data-platform-key={platformKey}>
-      <div class="menu-item__text">
-        <a href={url} style={{ opacity: found || isLoading ? 1 : 0.6 }}>
-          <span class="platform-name">{platform.config.title}</span>
-          {isLoading ? (
-            <span class="platform-stats"><InlineLoader /></span>
-          ) : (
-            <ChapterStats total={chapter} read={lastChapterRead} hasMore={hasMore} className="platform-stats" />
-          )}
-        </a>
-      </div>
-      <span
-        class="refresh-link"
-        title={t('refresh')}
-        style={{ pointerEvents: isLoading ? 'none' : 'auto', opacity: isLoading ? 0.3 : undefined }}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!isLoading) onRefresh();
-        }}
-      >
-        <RefreshIcon />
-      </span>
-      <span
-        class="edit-link"
-        title={t('editLinkTooltip')}
-        style={{ pointerEvents: isLoading ? 'none' : 'auto', opacity: isLoading ? 0.3 : undefined }}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!isLoading) onEdit();
-        }}
-      >
-        <EditIcon />
-      </span>
     </div>
   );
 }

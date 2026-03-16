@@ -61,11 +61,14 @@ export abstract class BasePlatformAPI {
    */
   abstract searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }>>;
 
+  /** Token storage key (defaults to config.key, mirrors can override) */
+  protected tokenKey = '';
+
   /**
    * Get auth token for this platform
    */
   protected async getToken(): Promise<string | null> {
-    return tokens.get(this.config.key);
+    return tokens.get(this.tokenKey || this.config.key);
   }
 
   /**

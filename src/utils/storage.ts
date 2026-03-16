@@ -6,11 +6,9 @@
  * - local:auto → platform/slug/targetPlatform → targetSlug|false (auto-discovered, with TTL)
  * - local:cache → targetPlatform/targetSlug → { chapter, lastChapterRead, expires }
  *
- * Known limitation: Read-modify-write operations are not atomic.
- * If multiple tabs modify storage simultaneously, changes can be lost.
- * This is rare in practice since users typically use one tab at a time.
- * Future improvement: Use granular storage keys (one per mapping) instead of
- * one big object to make operations atomic at the key level.
+ * Concurrent writes within the same tab are serialized via per-key write locks
+ * to prevent read-modify-write race conditions (e.g., parallel platform searches).
+ * Cross-tab writes are still non-atomic — rare in practice since users use one tab.
  */
 import { storage } from '@wxt-dev/storage';
 import { Logger } from './logger';
@@ -36,6 +34,22 @@ const KEYS = {
 
 // Default TTL: 1 hour
 const DEFAULT_TTL = 60 * 60 * 1000;
+
+/**
+ * Per-key write lock to serialize read-modify-write storage operations.
+ * Prevents concurrent writes from overwriting each other.
+ */
+function createLock() {
+  let chain: Promise<void> = Promise.resolve();
+  return <T>(fn: () => Promise<T>): Promise<T> => {
+    const result = chain.catch(() => {}).then(fn);
+    chain = result.then(() => {}, () => {});
+    return result;
+  };
+}
+
+const autoLock = createLock();
+const cacheLock = createLock();
 
 /**
  * Manual mappings (user-defined, synced across devices)
@@ -136,50 +150,54 @@ export const autoMappings = {
     return entry.value;
   },
 
-  async set(
+  set(
     platform: string,
     slug: string,
     targetPlatform: string,
     targetSlug: MappingValue,
     ttl: number = DEFAULT_TTL
   ): Promise<void> {
-    try {
-      const all = await this.getAll();
+    return autoLock(async () => {
+      try {
+        const all = await this.getAll();
 
-      if (!all[platform]) all[platform] = {};
-      if (!all[platform][slug]) all[platform][slug] = {};
-      all[platform][slug][targetPlatform] = {
-        value: targetSlug,
-        expires: Date.now() + ttl,
-      };
+        if (!all[platform]) all[platform] = {};
+        if (!all[platform][slug]) all[platform][slug] = {};
+        all[platform][slug][targetPlatform] = {
+          value: targetSlug,
+          expires: Date.now() + ttl,
+        };
 
-      await storage.setItem(KEYS.AUTO_MAPPINGS, all);
-    } catch (error) {
-      Logger.error('Storage', 'Failed to save auto mapping', error);
-      throw error;
-    }
+        await storage.setItem(KEYS.AUTO_MAPPINGS, all);
+      } catch (error) {
+        Logger.error('Storage', 'Failed to save auto mapping', error);
+        throw error;
+      }
+    });
   },
 
-  async delete(
+  delete(
     platform: string,
     slug: string,
     targetPlatform: string
   ): Promise<void> {
-    const all = await this.getAll();
+    return autoLock(async () => {
+      const all = await this.getAll();
 
-    if (all[platform]?.[slug]?.[targetPlatform] !== undefined) {
-      delete all[platform][slug][targetPlatform];
+      if (all[platform]?.[slug]?.[targetPlatform] !== undefined) {
+        delete all[platform][slug][targetPlatform];
 
-      // Clean up empty objects
-      if (Object.keys(all[platform][slug]).length === 0) {
-        delete all[platform][slug];
+        // Clean up empty objects
+        if (Object.keys(all[platform][slug]).length === 0) {
+          delete all[platform][slug];
+        }
+        if (Object.keys(all[platform]).length === 0) {
+          delete all[platform];
+        }
+
+        await storage.setItem(KEYS.AUTO_MAPPINGS, all);
       }
-      if (Object.keys(all[platform]).length === 0) {
-        delete all[platform];
-      }
-
-      await storage.setItem(KEYS.AUTO_MAPPINGS, all);
-    }
+    });
   },
 
   async getAllForSlug(
@@ -200,31 +218,33 @@ export const autoMappings = {
     return result;
   },
 
-  async flushExpired(): Promise<void> {
-    const all = await this.getAll();
-    const now = Date.now();
-    let changed = false;
+  flushExpired(): Promise<void> {
+    return autoLock(async () => {
+      const all = await this.getAll();
+      const now = Date.now();
+      let changed = false;
 
-    for (const platform of Object.keys(all)) {
-      for (const slug of Object.keys(all[platform])) {
-        for (const targetPlatform of Object.keys(all[platform][slug])) {
-          if (all[platform][slug][targetPlatform].expires < now) {
-            delete all[platform][slug][targetPlatform];
-            changed = true;
+      for (const platform of Object.keys(all)) {
+        for (const slug of Object.keys(all[platform])) {
+          for (const targetPlatform of Object.keys(all[platform][slug])) {
+            if (all[platform][slug][targetPlatform].expires < now) {
+              delete all[platform][slug][targetPlatform];
+              changed = true;
+            }
+          }
+          if (Object.keys(all[platform][slug]).length === 0) {
+            delete all[platform][slug];
           }
         }
-        if (Object.keys(all[platform][slug]).length === 0) {
-          delete all[platform][slug];
+        if (Object.keys(all[platform]).length === 0) {
+          delete all[platform];
         }
       }
-      if (Object.keys(all[platform]).length === 0) {
-        delete all[platform];
-      }
-    }
 
-    if (changed) {
-      await storage.setItem(KEYS.AUTO_MAPPINGS, all);
-    }
+      if (changed) {
+        await storage.setItem(KEYS.AUTO_MAPPINGS, all);
+      }
+    });
   },
 
   async clear(): Promise<void> {
@@ -260,64 +280,70 @@ export const cache = {
     return data;
   },
 
-  async set(
+  set(
     targetPlatform: string,
     targetSlug: string,
     data: Omit<CachedPlatformData, 'expires'>,
     ttl: number = DEFAULT_TTL
   ): Promise<void> {
-    try {
+    return cacheLock(async () => {
+      try {
+        const all = await this.getAll();
+
+        if (!all[targetPlatform]) all[targetPlatform] = {};
+
+        all[targetPlatform][targetSlug] = {
+          ...data,
+          expires: Date.now() + ttl,
+        };
+
+        await storage.setItem(KEYS.CACHE, all);
+      } catch (error) {
+        Logger.error('Storage', 'Failed to save cache', error);
+        throw error;
+      }
+    });
+  },
+
+  delete(targetPlatform: string, targetSlug: string): Promise<void> {
+    return cacheLock(async () => {
       const all = await this.getAll();
 
-      if (!all[targetPlatform]) all[targetPlatform] = {};
+      if (all[targetPlatform]?.[targetSlug]) {
+        delete all[targetPlatform][targetSlug];
 
-      all[targetPlatform][targetSlug] = {
-        ...data,
-        expires: Date.now() + ttl,
-      };
+        // Clean up empty objects
+        if (Object.keys(all[targetPlatform]).length === 0) {
+          delete all[targetPlatform];
+        }
 
-      await storage.setItem(KEYS.CACHE, all);
-    } catch (error) {
-      Logger.error('Storage', 'Failed to save cache', error);
-      throw error;
-    }
-  },
-
-  async delete(targetPlatform: string, targetSlug: string): Promise<void> {
-    const all = await this.getAll();
-
-    if (all[targetPlatform]?.[targetSlug]) {
-      delete all[targetPlatform][targetSlug];
-
-      // Clean up empty objects
-      if (Object.keys(all[targetPlatform]).length === 0) {
-        delete all[targetPlatform];
+        await storage.setItem(KEYS.CACHE, all);
       }
-
-      await storage.setItem(KEYS.CACHE, all);
-    }
+    });
   },
 
-  async flushExpired(): Promise<void> {
-    const all = await this.getAll();
-    const now = Date.now();
-    let changed = false;
+  flushExpired(): Promise<void> {
+    return cacheLock(async () => {
+      const all = await this.getAll();
+      const now = Date.now();
+      let changed = false;
 
-    for (const targetPlatform of Object.keys(all)) {
-      for (const targetSlug of Object.keys(all[targetPlatform])) {
-        if (all[targetPlatform][targetSlug].expires < now) {
-          delete all[targetPlatform][targetSlug];
-          changed = true;
+      for (const targetPlatform of Object.keys(all)) {
+        for (const targetSlug of Object.keys(all[targetPlatform])) {
+          if (all[targetPlatform][targetSlug].expires < now) {
+            delete all[targetPlatform][targetSlug];
+            changed = true;
+          }
+        }
+        if (Object.keys(all[targetPlatform]).length === 0) {
+          delete all[targetPlatform];
         }
       }
-      if (Object.keys(all[targetPlatform]).length === 0) {
-        delete all[targetPlatform];
-      }
-    }
 
-    if (changed) {
-      await storage.setItem(KEYS.CACHE, all);
-    }
+      if (changed) {
+        await storage.setItem(KEYS.CACHE, all);
+      }
+    });
   },
 
   async clear(): Promise<void> {
@@ -390,15 +416,15 @@ export const userProgress = {
  * Each platform stores its own token
  */
 export const tokens = {
-  async get(platform: PlatformKey): Promise<string | null> {
-    const all = await storage.getItem<Record<PlatformKey, string>>(KEYS.TOKENS);
+  async get(platform: string): Promise<string | null> {
+    const all = await storage.getItem<Record<string, string>>(KEYS.TOKENS);
     return all?.[platform] ?? null;
   },
 
-  async set(platform: PlatformKey, token: string): Promise<void> {
+  async set(platform: string, token: string): Promise<void> {
     try {
       const all =
-        (await storage.getItem<Partial<Record<PlatformKey, string>>>(KEYS.TOKENS)) ?? {};
+        (await storage.getItem<Record<string, string>>(KEYS.TOKENS)) ?? {};
       all[platform] = token;
       await storage.setItem(KEYS.TOKENS, all);
     } catch (error) {
@@ -407,9 +433,9 @@ export const tokens = {
     }
   },
 
-  async delete(platform: PlatformKey): Promise<void> {
+  async delete(platform: string): Promise<void> {
     const all =
-      (await storage.getItem<Partial<Record<PlatformKey, string>>>(KEYS.TOKENS)) ?? {};
+      (await storage.getItem<Record<string, string>>(KEYS.TOKENS)) ?? {};
     delete all[platform];
     await storage.setItem(KEYS.TOKENS, all);
   },
