@@ -41,6 +41,9 @@
   "notFound": {
     "message": "Not found"
   },
+  "disablePlatform": {
+    "message": "Unavailable on this platform"
+  },
   "onboardingText": {
     "message": "Click the extension icon to discover more features"
   },

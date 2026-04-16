@@ -135,7 +135,7 @@ export class MangaPage extends BasePage {
         theme="senkuro"
         showOnMount={true}
         onRefresh={(key) => this.handleRefresh(key)}
-        className="platforms button button--secondary button--fluid button-size--big"
+        className="platforms button button--secondary button--fluid button-size--md"
       >
         <PlatformsIcon />
         <span>{t('otherSites')}</span>
@@ -153,7 +153,7 @@ export class MangaPage extends BasePage {
 
     render(
       <EditModal
-        onSave={(key, url) => this.handleSaveLink(key, url)}
+        onSave={(key, urlOrFalse) => this.handleSaveLink(key, urlOrFalse)}
         onDelete={(key) => this.handleDeleteLink(key)}
       />,
       this.modalContainer
@@ -234,6 +234,11 @@ export class MangaPage extends BasePage {
     const { manualLinks, autoLinks } = store;
     const api = getAPI(platformKey);
 
+    // Manually disabled by user - don't search, just re-resolve cache state
+    if (manualLinks[platformKey] === false) {
+      return;
+    }
+
     const targetSlug = manualLinks[platformKey] ?? autoLinks[platformKey];
 
     if (targetSlug && typeof targetSlug === 'string') {
@@ -261,12 +266,23 @@ export class MangaPage extends BasePage {
   /**
    * Handle save link from modal
    */
-  private handleSaveLink = async (platformKey: PlatformKey, url: string): Promise<void> => {
+  private handleSaveLink = async (platformKey: PlatformKey, urlOrFalse: string | false): Promise<void> => {
+    const store = useMappingsStore.getState();
+
+    if (urlOrFalse === false) {
+      const prevSlug = store.manualLinks[platformKey] ?? store.autoLinks[platformKey];
+      await store.saveManualLink(platformKey, false);
+      if (typeof prevSlug === 'string') {
+        await store.invalidateCache(platformKey, prevSlug);
+      }
+      await store.loadCachedResult(platformKey);
+      return;
+    }
+
     const api = getAPI(platformKey);
-    const extractedSlug = api.getSlugFromURL(url);
+    const extractedSlug = api.getSlugFromURL(urlOrFalse);
     if (!extractedSlug) return;
 
-    const store = useMappingsStore.getState();
     await store.saveManualLink(platformKey, extractedSlug);
     await store.invalidateCache(platformKey, extractedSlug);
     await this.loadPlatformData(platformKey);

@@ -13,7 +13,8 @@ type MessageKey =
   | 'editLinkTooltip'
   | 'searchPlaceholder'
   | 'searching'
-  | 'noResults';
+  | 'noResults'
+  | 'disablePlatform';
 
 /**
  * Get localized message by key

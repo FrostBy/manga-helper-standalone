@@ -36,7 +36,7 @@ interface MappingsState {
   loadCachedResult: (targetPlatform: string) => Promise<CachedPlatformData | null>;
 
   // Manual link management
-  saveManualLink: (targetPlatform: string, targetSlug: string) => Promise<void>;
+  saveManualLink: (targetPlatform: string, targetSlug: MappingValue) => Promise<void>;
   deleteManualLink: (targetPlatform: string) => Promise<void>;
 
   // Cache management
@@ -163,9 +163,10 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
   },
 
   /**
-   * Save manual link (user-defined)
+   * Save manual link (user-defined).
+   * targetSlug can be a string (mapped slug) or false (platform explicitly disabled by user).
    */
-  saveManualLink: async (targetPlatform: string, targetSlug: string) => {
+  saveManualLink: async (targetPlatform: string, targetSlug: MappingValue) => {
     const { currentPlatform, currentSlug } = get();
     if (!currentPlatform || !currentSlug) return;
 

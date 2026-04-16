@@ -23,6 +23,8 @@ export function PlatformDropdown({ onRefresh }: Props) {
                     <span class="platform-name">{item.api.config.title}</span>
                     {item.isLoading ? (
                       <span class="platform-stats"><InlineLoader /></span>
+                    ) : item.disabled ? (
+                      <span class="platform-stats chapter-stats">- <small>[-]</small></span>
                     ) : (
                       <ChapterStats total={item.chapter} read={item.lastChapterRead} hasMore={item.hasMore} className="platform-stats" />
                     )}
@@ -31,8 +33,12 @@ export function PlatformDropdown({ onRefresh }: Props) {
                 <span
                   class="refresh-link"
                   title={t('refresh')}
-                  style={{ pointerEvents: item.isLoading ? 'none' : 'auto', opacity: item.isLoading ? 0.3 : undefined }}
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!item.isLoading) item.onRefresh(); }}
+                  style={{
+                    pointerEvents: item.isLoading ? 'none' : 'auto',
+                    opacity: item.isLoading ? 0.3 : item.manuallyDisabled ? 0.25 : undefined,
+                    cursor: item.manuallyDisabled ? 'not-allowed' : undefined,
+                  }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (item.isLoading || item.manuallyDisabled) return; item.onRefresh(); }}
                 >
                   <RefreshIcon />
                 </span>

@@ -16,6 +16,7 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 - **Reading progress sync** — Shows your reading progress from each platform
 - **Auto-search** — Automatically finds the same manga on other platforms by title matching
 - **Manual linking** — Manually link manga across platforms when auto-search doesn't find a match
+- **Mark as unavailable** — Explicitly mark a platform as unavailable (e.g. blocked by the copyright holder); it moves to the bottom of the list and is skipped by auto-refresh
 - **Chapter comparison** — Highlights platforms that have more chapters available
 - **Popup search** — Search manga across all platforms from the extension popup with cover thumbnails
 - **Debug logging** — Configurable log level (DEBUG/INFO/WARN/ERROR/OFF) in popup settings

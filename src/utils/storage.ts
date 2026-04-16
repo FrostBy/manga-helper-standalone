@@ -53,7 +53,8 @@ const cacheLock = createLock();
 
 /**
  * Manual mappings (user-defined, synced across devices)
- * No TTL - permanent until deleted
+ * No TTL - permanent until deleted.
+ * Value is MappingValue: string (target slug) or false (platform explicitly disabled by user).
  */
 export const manualMappings = {
   async getAll(): Promise<AllMappings> {
@@ -64,18 +65,19 @@ export const manualMappings = {
     platform: string,
     slug: string,
     targetPlatform: string
-  ): Promise<string | null> {
+  ): Promise<MappingValue | null> {
     const all = await this.getAll();
     const value = all[platform]?.[slug]?.[targetPlatform];
-    // Manual mappings only store strings, never false
-    return typeof value === 'string' ? value : null;
+    if (typeof value === 'string') return value;
+    if (value === false) return false;
+    return null;
   },
 
   async set(
     platform: string,
     slug: string,
     targetPlatform: string,
-    targetSlug: string
+    targetSlug: MappingValue
   ): Promise<void> {
     try {
       const all = await this.getAll();

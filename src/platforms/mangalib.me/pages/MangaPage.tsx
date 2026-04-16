@@ -162,7 +162,7 @@ export class MangaPage extends BasePage {
 
     render(
       <EditModal
-        onSave={(key, url) => this.handleSaveLink(key, url)}
+        onSave={(key, urlOrFalse) => this.handleSaveLink(key, urlOrFalse)}
         onDelete={(key) => this.handleDeleteLink(key)}
       />,
       this.modalContainer
@@ -279,6 +279,11 @@ export class MangaPage extends BasePage {
     const { manualLinks, autoLinks } = store;
     const api = getAPI(platformKey);
 
+    // Manually disabled by user - don't search
+    if (manualLinks[platformKey] === false) {
+      return;
+    }
+
     // Get target slug
     const targetSlug = manualLinks[platformKey] ?? autoLinks[platformKey];
 
@@ -316,12 +321,22 @@ export class MangaPage extends BasePage {
   /**
    * Handle save link from modal
    */
-  private handleSaveLink = async (platformKey: PlatformKey, url: string): Promise<void> => {
-    const api = getAPI(platformKey);
-    const extractedSlug = api.getSlugFromURL(url);
-    if (!extractedSlug) return;
-
+  private handleSaveLink = async (platformKey: PlatformKey, urlOrFalse: string | false): Promise<void> => {
     const store = useMappingsStore.getState();
+
+    if (urlOrFalse === false) {
+      const prevSlug = store.manualLinks[platformKey] ?? store.autoLinks[platformKey];
+      await store.saveManualLink(platformKey, false);
+      if (typeof prevSlug === 'string') {
+        await store.invalidateCache(platformKey, prevSlug);
+      }
+      await store.loadCachedResult(platformKey);
+      return;
+    }
+
+    const api = getAPI(platformKey);
+    const extractedSlug = api.getSlugFromURL(urlOrFalse);
+    if (!extractedSlug) return;
 
     // Save the manual link
     await store.saveManualLink(platformKey, extractedSlug);

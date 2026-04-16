@@ -6,7 +6,7 @@ import { t } from '@/src/utils';
 import type { PlatformKey } from '@/src/types';
 
 interface Props {
-  onSave: (platformKey: PlatformKey, url: string) => void;
+  onSave: (platformKey: PlatformKey, urlOrFalse: string | false) => void;
   onDelete: (platformKey: PlatformKey) => void;
 }
 
@@ -21,21 +21,28 @@ export function EditModal({ onSave, onDelete }: Props) {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [hasError, setHasError] = useState(false);
+  const [isDisabled, setIsDisabled] = useState(false);
 
-  // Has any saved link? (manual or auto)
-  const savedSlug = modalPlatform
-    ? manualLinks[modalPlatform] ?? autoLinks[modalPlatform]
-    : null;
+  // Manual value (what the user explicitly set): string, false, or undefined
+  const manualValue = modalPlatform ? manualLinks[modalPlatform] : undefined;
+  const autoValue = modalPlatform ? autoLinks[modalPlatform] : undefined;
+  const savedSlug = manualValue ?? autoValue;
   const hasSavedSlug = typeof savedSlug === 'string';
+  // Checkbox reflects ONLY manual disable — auto-false (search found nothing) is not a user action
+  const isManuallyDisabled = manualValue === false;
+  const hasAnySaved = hasSavedSlug || manualValue === false || autoValue === false;
 
-  // Focus input when modal opens and reset error
+  // Focus input when modal opens and reset state
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.value = modalUrl;
-      inputRef.current.focus();
       setHasError(false);
+      setIsDisabled(isManuallyDisabled);
+      if (!isManuallyDisabled) {
+        inputRef.current.focus();
+      }
     }
-  }, [isOpen, modalUrl]);
+  }, [isOpen, modalUrl, isManuallyDisabled]);
 
   // Handle body class
   useEffect(() => {
@@ -63,11 +70,24 @@ export function EditModal({ onSave, onDelete }: Props) {
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
-    if (!modalPlatform || !inputRef.current) return;
+    if (!modalPlatform) return;
 
-    const url = inputRef.current.value.trim();
+    if (isDisabled) {
+      setHasError(false);
+      onSave(modalPlatform, false);
+      closeModal();
+      return;
+    }
 
-    // Validate URL using platform's getSlugFromURL
+    const url = inputRef.current?.value.trim() ?? '';
+
+    if (url === '') {
+      setHasError(false);
+      onDelete(modalPlatform);
+      closeModal();
+      return;
+    }
+
     const api = getAPI(modalPlatform);
     const slug = api.getSlugFromURL(url);
 
@@ -83,7 +103,7 @@ export function EditModal({ onSave, onDelete }: Props) {
 
   const handleCleanClick = () => {
     if (!modalPlatform) return;
-    if (hasSavedSlug) {
+    if (hasAnySaved) {
       onDelete(modalPlatform);
     }
     closeModal();
@@ -113,12 +133,25 @@ export function EditModal({ onSave, onDelete }: Props) {
                 </div>
                 <input
                   ref={inputRef}
-                  type="url"
+                  type="text"
                   name="link"
                   class={`form__input${hasError ? ' form__input--error' : ''}`}
                   placeholder="https://example.com/manga/slug"
+                  disabled={isDisabled}
+                  style={{ marginBottom: '8px' }}
                   onInput={() => hasError && setHasError(false)}
                 />
+              </div>
+              <div class="form__field form__field--disable">
+                <label class="form__checkbox">
+                  <input
+                    type="checkbox"
+                    checked={isDisabled}
+                    style={{ marginRight: '5px' }}
+                    onChange={(e) => setIsDisabled((e.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span>{t('disablePlatform')}</span>
+                </label>
               </div>
               <div class="form__footer">
                 <button class="btn button_save" type="submit">
@@ -128,7 +161,7 @@ export function EditModal({ onSave, onDelete }: Props) {
                 <button class="btn button_clean" type="button" onClick={handleCleanClick}>
                   <DeleteIcon />
                   <span class="button_clean-text">
-                    {hasSavedSlug ? t('delete') : t('cancel')}
+                    {hasAnySaved ? t('delete') : t('cancel')}
                   </span>
                 </button>
               </div>
