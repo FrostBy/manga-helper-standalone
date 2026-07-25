@@ -44,6 +44,9 @@
   "disablePlatform": {
     "message": "Недоступно на этой платформе"
   },
+  "offsetLabel": {
+    "message": "Сдвиг глав"
+  },
   "onboardingText": {
     "message": "Нажмите на иконку расширения, чтобы открыть больше возможностей"
   },

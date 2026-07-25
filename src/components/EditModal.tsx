@@ -6,7 +6,7 @@ import { t } from '@/src/utils';
 import type { PlatformKey } from '@/src/types';
 
 interface Props {
-  onSave: (platformKey: PlatformKey, urlOrFalse: string | false) => void;
+  onSave: (platformKey: PlatformKey, url: string) => void;
   onDelete: (platformKey: PlatformKey) => void;
 }
 
@@ -18,63 +18,63 @@ export function EditModal({ onSave, onDelete }: Props) {
 
   const manualLinks = useMappingsStore((s) => s.manualLinks);
   const autoLinks = useMappingsStore((s) => s.autoLinks);
+  const offsets = useMappingsStore((s) => s.offsets);
+  const disabledMap = useMappingsStore((s) => s.disabled);
+  const setOffset = useMappingsStore((s) => s.setOffset);
+  const setDisabledAction = useMappingsStore((s) => s.setDisabled);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [hasError, setHasError] = useState(false);
   const [isDisabled, setIsDisabled] = useState(false);
+  const [offsetValue, setOffsetValue] = useState(0);
 
-  // Manual value (what the user explicitly set): string, false, or undefined
   const manualValue = modalPlatform ? manualLinks[modalPlatform] : undefined;
   const autoValue = modalPlatform ? autoLinks[modalPlatform] : undefined;
   const savedSlug = manualValue ?? autoValue;
   const hasSavedSlug = typeof savedSlug === 'string';
-  // Checkbox reflects ONLY manual disable — auto-false (search found nothing) is not a user action
-  const isManuallyDisabled = manualValue === false;
-  const hasAnySaved = hasSavedSlug || manualValue === false || autoValue === false;
+  const isPlatformDisabled = modalPlatform ? disabledMap[modalPlatform] === true : false;
+  const currentOffset = modalPlatform ? offsets[modalPlatform] ?? 0 : 0;
+  const hasAnySaved = hasSavedSlug || isPlatformDisabled || currentOffset !== 0;
 
-  // Focus input when modal opens and reset state
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.value = modalUrl;
       setHasError(false);
-      setIsDisabled(isManuallyDisabled);
-      if (!isManuallyDisabled) {
-        inputRef.current.focus();
-      }
+      setIsDisabled(isPlatformDisabled);
+      setOffsetValue(currentOffset);
+      if (!isPlatformDisabled) inputRef.current.focus();
     }
-  }, [isOpen, modalUrl, isManuallyDisabled]);
+  }, [isOpen, modalUrl, isPlatformDisabled, currentOffset]);
 
-  // Handle body class
   useEffect(() => {
-    if (isOpen) {
-      document.body.classList.add('modal-open');
-    } else {
-      document.body.classList.remove('modal-open');
-    }
+    if (isOpen) document.body.classList.add('modal-open');
+    else document.body.classList.remove('modal-open');
     return () => document.body.classList.remove('modal-open');
   }, [isOpen]);
 
-  // Handle Escape key
   useEffect(() => {
     if (!isOpen) return;
-
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        closeModal();
-      }
+      if (e.key === 'Escape') closeModal();
     };
-
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, closeModal]);
 
-  const handleSubmit = (e: Event) => {
+  const handleSubmit = async (e: Event) => {
     e.preventDefault();
     if (!modalPlatform) return;
 
+    // F5.6: only persist if values actually changed
+    if (offsetValue !== currentOffset) {
+      await setOffset(modalPlatform, offsetValue);
+    }
+    if (isDisabled !== isPlatformDisabled) {
+      await setDisabledAction(modalPlatform, isDisabled);
+    }
+
     if (isDisabled) {
       setHasError(false);
-      onSave(modalPlatform, false);
       closeModal();
       return;
     }
@@ -84,6 +84,13 @@ export function EditModal({ onSave, onDelete }: Props) {
     if (url === '') {
       setHasError(false);
       onDelete(modalPlatform);
+      closeModal();
+      return;
+    }
+
+    // URL не менялся — не трогаем slot (иначе auto промоутнется в manual без намерения).
+    if (url === modalUrl.trim()) {
+      setHasError(false);
       closeModal();
       return;
     }
@@ -103,9 +110,7 @@ export function EditModal({ onSave, onDelete }: Props) {
 
   const handleCleanClick = () => {
     if (!modalPlatform) return;
-    if (hasAnySaved) {
-      onDelete(modalPlatform);
-    }
+    if (hasAnySaved) onDelete(modalPlatform);
     closeModal();
   };
 
@@ -142,8 +147,11 @@ export function EditModal({ onSave, onDelete }: Props) {
                   onInput={() => hasError && setHasError(false)}
                 />
               </div>
-              <div class="form__field form__field--disable">
-                <label class="form__checkbox">
+              <div
+                class="form__field form__field--row"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}
+              >
+                <label class="form__checkbox" style={{ display: 'inline-flex', alignItems: 'center' }}>
                   <input
                     type="checkbox"
                     checked={isDisabled}
@@ -151,6 +159,23 @@ export function EditModal({ onSave, onDelete }: Props) {
                     onChange={(e) => setIsDisabled((e.currentTarget as HTMLInputElement).checked)}
                   />
                   <span>{t('disablePlatform')}</span>
+                </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span>{t('offsetLabel')}</span>
+                  <input
+                    type="number"
+                    min={-1000}
+                    max={1000}
+                    step={1}
+                    value={offsetValue}
+                    class="form__input"
+                    style={{ width: '70px' }}
+                    onInput={(e) => {
+                      const raw = (e.currentTarget as HTMLInputElement).value;
+                      const parsed = parseInt(raw, 10);
+                      setOffsetValue(Number.isFinite(parsed) ? parsed : 0);
+                    }}
+                  />
                 </label>
               </div>
               <div class="form__footer">

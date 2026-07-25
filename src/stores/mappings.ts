@@ -1,159 +1,193 @@
 /**
- * Zustand store for platform mappings
- * Syncs with chrome.storage automatically
+ * Zustand store for platform mappings — backed by Manga Node graph.
+ *
+ * UI continues to read `manualLinks` / `autoLinks` / `disabled` / `offsets` from state,
+ * but underneath all mutations go through node graph (nodeStorage + addOrMergeSlug).
  */
 import { create } from 'zustand';
+import { cache, getTargetSlug } from '@/src/utils/storage';
 import {
-  manualMappings,
-  autoMappings,
-  cache,
-  getTargetSlug,
-} from '@/src/utils/storage';
+  nodeStore,
+  ensureNode,
+  addOrMergeSlug,
+} from '@/src/utils/nodeStorage';
 import { Logger } from '@/src/utils/logger';
 import type {
   PlatformMapping,
   CachedPlatformData,
   SlugSource,
   MappingValue,
+  MangaNode,
+  PlatformKey,
 } from '@/src/types';
 
 interface MappingsState {
-  // Current context
-  currentPlatform: string | null;
+  currentPlatform: PlatformKey | null;
   currentSlug: string | null;
+  nodeId: string | null;
 
-  // Loaded data for current slug
-  manualLinks: PlatformMapping;
-  autoLinks: PlatformMapping;
-  cachedResults: Record<string, CachedPlatformData | null>;
+  // Derived from current node — kept on state for UI reactivity
+  manualLinks: PlatformMapping;     // only where source='manual'
+  autoLinks: PlatformMapping;       // only where source='auto'
+  offsets: Partial<Record<PlatformKey, number>>;
+  disabled: Partial<Record<PlatformKey, true>>;
+  cachedResults: Partial<Record<PlatformKey, CachedPlatformData | null>>;
 
-  // Loading states
   loading: boolean;
-  loadingPlatforms: Set<string>;
+  loadingPlatforms: Set<PlatformKey>;
 
-  // Actions
-  setContext: (platform: string, slug: string) => Promise<void>;
-  loadCachedResult: (targetPlatform: string) => Promise<CachedPlatformData | null>;
+  // Actions — R4.1: all platform params typed as PlatformKey
+  setContext: (platform: PlatformKey, slug: string) => Promise<void>;
+  refreshFromNode: () => Promise<void>;
+  loadCachedResult: (targetPlatform: PlatformKey) => Promise<CachedPlatformData | null>;
 
-  // Manual link management
-  saveManualLink: (targetPlatform: string, targetSlug: MappingValue) => Promise<void>;
-  deleteManualLink: (targetPlatform: string) => Promise<void>;
+  saveManualLink: (targetPlatform: PlatformKey, targetSlug: MappingValue) => Promise<void>;
+  deleteManualLink: (targetPlatform: PlatformKey) => Promise<void>;
 
-  // Cache management
   cacheResult: (
-    targetPlatform: string,
+    targetPlatform: PlatformKey,
     targetSlug: string,
     data: Omit<CachedPlatformData, 'expires'>
   ) => Promise<void>;
-  invalidateCache: (targetPlatform: string, targetSlug: string) => Promise<void>;
+  invalidateCache: (targetPlatform: PlatformKey, targetSlug: string) => Promise<void>;
 
-  // Auto mapping (after search)
-  saveAutoMapping: (targetPlatform: string, targetSlug: MappingValue) => Promise<void>;
-  deleteAutoMapping: (targetPlatform: string) => Promise<void>;
+  saveAutoMapping: (targetPlatform: PlatformKey, targetSlug: MappingValue) => Promise<void>;
+  deleteAutoMapping: (targetPlatform: PlatformKey) => Promise<void>;
 
-  // Loading state management
-  setLoading: (targetPlatform: string, loading: boolean) => void;
+  setOffset: (targetPlatform: PlatformKey, value: number) => Promise<void>;
+  setDisabled: (targetPlatform: PlatformKey, value: boolean) => Promise<void>;
 
-  // Helpers
-  getSlugWithSource: (targetPlatform: string) => Promise<{ slug: MappingValue | null; source: SlugSource }>;
-  isLoading: (targetPlatform: string) => boolean;
+  setLoading: (targetPlatform: PlatformKey, loading: boolean) => void;
+  getSlugWithSource: (targetPlatform: PlatformKey) => Promise<{ slug: MappingValue | null; source: SlugSource }>;
+  isLoading: (targetPlatform: PlatformKey) => boolean;
 
-  // Reset
   reset: () => void;
+}
+
+type NodeProjection = Pick<MappingsState, 'manualLinks' | 'autoLinks' | 'offsets' | 'disabled'>;
+
+// R2.1: cache projection per-node identity so Zustand shallow-check passes and
+// subscribers to `offsets` / `disabled` don't re-render when underlying node
+// is unchanged. Mutations always return a new node object, so identity is safe.
+let lastProjectedNode: MangaNode | null = null;
+let lastProjection: NodeProjection | null = null;
+
+/** Project a node into UI-friendly shape (manualLinks/autoLinks/offsets/disabled). */
+function projectNode(node: MangaNode | null): NodeProjection {
+  if (node === lastProjectedNode && lastProjection) return lastProjection;
+
+  const manualLinks: PlatformMapping = {};
+  const autoLinks: PlatformMapping = {};
+  if (!node) {
+    const empty: NodeProjection = { manualLinks, autoLinks, offsets: {}, disabled: {} };
+    lastProjectedNode = null;
+    lastProjection = empty;
+    return empty;
+  }
+
+  for (const [platform, slug] of Object.entries(node.slugs)) {
+    if (slug === undefined) continue;
+    const pk = platform as PlatformKey;
+    const src = node.source[pk];
+    if (src === 'manual') manualLinks[pk] = slug;
+    else autoLinks[pk] = slug;
+  }
+  const projected: NodeProjection = {
+    manualLinks,
+    autoLinks,
+    offsets: { ...node.offsets },
+    disabled: { ...node.disabled },
+  };
+  lastProjectedNode = node;
+  lastProjection = projected;
+  return projected;
 }
 
 export const useMappingsStore = create<MappingsState>((set, get) => ({
   currentPlatform: null,
   currentSlug: null,
+  nodeId: null,
+
   manualLinks: {},
   autoLinks: {},
+  offsets: {},
+  disabled: {},
   cachedResults: {},
   loading: false,
   loadingPlatforms: new Set(),
 
-  /**
-   * Set current manga context and load all mappings
-   */
-  setContext: async (platform: string, slug: string) => {
+  setContext: async (platform: PlatformKey, slug: string) => {
     set({ loading: true, currentPlatform: platform, currentSlug: slug });
 
     try {
-      const [manual, auto] = await Promise.all([
-        manualMappings.getAllForSlug(platform, slug),
-        autoMappings.getAllForSlug(platform, slug),
-      ]);
-
+      const node = await nodeStore.resolveByTuple(platform, slug);
+      const projected = projectNode(node);
       set({
-        manualLinks: manual,
-        autoLinks: auto,
+        nodeId: node?.id ?? null,
+        ...projected,
         cachedResults: {},
         loading: false,
       });
+      if (node) {
+        nodeStore.touchLastAccessed(node.id);
+      }
     } catch (error) {
-      Logger.error('MappingsStore', 'Failed to load mappings', error);
+      Logger.error('MappingsStore', 'Failed to load node', error);
       set({
+        nodeId: null,
         manualLinks: {},
         autoLinks: {},
+        offsets: {},
+        disabled: {},
         cachedResults: {},
         loading: false,
       });
     }
   },
 
-  /**
-   * Load cached result for a target platform
-   * First resolves targetSlug from mappings, then gets cache
-   */
-  loadCachedResult: async (targetPlatform: string) => {
+  /** Re-read current node from storage and project into state. */
+  refreshFromNode: async () => {
+    const { currentPlatform, currentSlug } = get();
+    if (!currentPlatform || !currentSlug) return;
+    const node = await nodeStore.resolveByTuple(currentPlatform, currentSlug);
+    const projected = projectNode(node);
+    set({ nodeId: node?.id ?? null, ...projected });
+  },
+
+  loadCachedResult: async (targetPlatform: PlatformKey) => {
     const { currentPlatform, currentSlug, loadingPlatforms } = get();
     if (!currentPlatform || !currentSlug) return null;
 
-    // Mark as loading
     const newLoading = new Set(loadingPlatforms);
     newLoading.add(targetPlatform);
     set({ loadingPlatforms: newLoading });
 
     try {
-      // First get targetSlug from mappings
       const { slug: targetSlug } = await getTargetSlug(
         currentPlatform,
         currentSlug,
         targetPlatform
       );
 
-      // If no mapping or mapping is false (not found), no cache
       if (!targetSlug) {
         set((state) => ({
-          cachedResults: {
-            ...state.cachedResults,
-            [targetPlatform]: null,
-          },
+          cachedResults: { ...state.cachedResults, [targetPlatform]: null },
         }));
         return null;
       }
 
-      // Get cache by target platform and slug
       const result = await cache.get(targetPlatform, targetSlug);
-
       set((state) => ({
-        cachedResults: {
-          ...state.cachedResults,
-          [targetPlatform]: result,
-        },
+        cachedResults: { ...state.cachedResults, [targetPlatform]: result },
       }));
-
       return result;
     } catch (error) {
       Logger.error('MappingsStore', `Failed to load cache for ${targetPlatform}`, error);
       set((state) => ({
-        cachedResults: {
-          ...state.cachedResults,
-          [targetPlatform]: null,
-        },
+        cachedResults: { ...state.cachedResults, [targetPlatform]: null },
       }));
       return null;
     } finally {
-      // Remove from loading
       set((state) => {
         const updated = new Set(state.loadingPlatforms);
         updated.delete(targetPlatform);
@@ -162,187 +196,122 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
     }
   },
 
-  /**
-   * Save manual link (user-defined).
-   * targetSlug can be a string (mapped slug) or false (platform explicitly disabled by user).
-   */
-  saveManualLink: async (targetPlatform: string, targetSlug: MappingValue) => {
+  saveManualLink: async (targetPlatform: PlatformKey, targetSlug: MappingValue) => {
     const { currentPlatform, currentSlug } = get();
     if (!currentPlatform || !currentSlug) return;
 
-    await manualMappings.set(
+    // R2.6: use node returned from addOrMergeSlug — no second read/project.
+    const { node } = await addOrMergeSlug(
       currentPlatform,
       currentSlug,
       targetPlatform,
-      targetSlug
+      targetSlug,
+      'manual'
     );
-
-    // Clear cached result in state (cache itself is shared, don't delete it)
     set((state) => ({
-      manualLinks: {
-        ...state.manualLinks,
-        [targetPlatform]: targetSlug,
-      },
-      cachedResults: {
-        ...state.cachedResults,
-        [targetPlatform]: null,
-      },
+      nodeId: node.id,
+      ...projectNode(node),
+      cachedResults: { ...state.cachedResults, [targetPlatform]: null },
     }));
   },
 
-  /**
-   * Delete manual link
-   */
-  deleteManualLink: async (targetPlatform: string) => {
-    const { currentPlatform, currentSlug, manualLinks } = get();
-    if (!currentPlatform || !currentSlug) return;
-
-    await manualMappings.delete(currentPlatform, currentSlug, targetPlatform);
-
-    const updated = { ...manualLinks };
-    delete updated[targetPlatform];
-
-    // Clear cached result in state (cache itself is shared, don't delete it)
-    set({
-      manualLinks: updated,
-      cachedResults: {
-        ...get().cachedResults,
-        [targetPlatform]: null,
-      },
-    });
+  deleteManualLink: async (targetPlatform: PlatformKey) => {
+    const { nodeId } = get();
+    if (!nodeId) return;
+    await nodeStore.deleteSlot(nodeId, targetPlatform, 'manual');
+    await get().refreshFromNode();
+    set((state) => ({
+      cachedResults: { ...state.cachedResults, [targetPlatform]: null },
+    }));
   },
 
-  /**
-   * Cache search result
-   * Cache is stored by target platform (shared across all requesting platforms)
-   */
-  cacheResult: async (
-    targetPlatform: string,
-    targetSlug: string,
-    data: Omit<CachedPlatformData, 'expires'>
-  ) => {
+  cacheResult: async (targetPlatform, targetSlug, data) => {
     await cache.set(targetPlatform, targetSlug, data);
-
     const cached = await cache.get(targetPlatform, targetSlug);
-
     set((state) => ({
-      cachedResults: {
-        ...state.cachedResults,
-        [targetPlatform]: cached,
-      },
+      cachedResults: { ...state.cachedResults, [targetPlatform]: cached },
     }));
   },
 
-  /**
-   * Invalidate cache for platform
-   * Takes targetSlug because cache is stored by target, not source
-   */
-  invalidateCache: async (targetPlatform: string, targetSlug: string) => {
+  invalidateCache: async (targetPlatform: PlatformKey, targetSlug: string) => {
     await cache.delete(targetPlatform, targetSlug);
-
     set((state) => ({
-      cachedResults: {
-        ...state.cachedResults,
-        [targetPlatform]: null,
-      },
+      cachedResults: { ...state.cachedResults, [targetPlatform]: null },
     }));
   },
 
-  /**
-   * Save auto-discovered mapping
-   * Can save false if search found nothing (prevents API spam)
-   */
-  saveAutoMapping: async (targetPlatform: string, targetSlug: MappingValue) => {
+  saveAutoMapping: async (targetPlatform: PlatformKey, targetSlug: MappingValue) => {
     const { currentPlatform, currentSlug } = get();
     if (!currentPlatform || !currentSlug) return;
 
-    await autoMappings.set(
+    const { node } = await addOrMergeSlug(
       currentPlatform,
       currentSlug,
       targetPlatform,
-      targetSlug
+      targetSlug,
+      'auto'
     );
-
-    set((state) => ({
-      autoLinks: {
-        ...state.autoLinks,
-        [targetPlatform]: targetSlug,
-      },
-    }));
+    set({ nodeId: node.id, ...projectNode(node) });
   },
 
-  /**
-   * Delete auto mapping (to allow re-search)
-   */
-  deleteAutoMapping: async (targetPlatform: string) => {
-    const { currentPlatform, currentSlug, autoLinks } = get();
+  deleteAutoMapping: async (targetPlatform: PlatformKey) => {
+    const { nodeId } = get();
+    if (!nodeId) return;
+    await nodeStore.deleteSlot(nodeId, targetPlatform, 'auto');
+    await get().refreshFromNode();
+  },
+
+  setOffset: async (targetPlatform: PlatformKey, value: number) => {
+    const { currentPlatform, currentSlug } = get();
     if (!currentPlatform || !currentSlug) return;
-
-    await autoMappings.delete(currentPlatform, currentSlug, targetPlatform);
-
-    const updated = { ...autoLinks };
-    delete updated[targetPlatform];
-
-    set({ autoLinks: updated });
+    const nodeId = await ensureNode(currentPlatform, currentSlug);
+    // F2.4: updateNode returns the fresh node — use it directly, no second read
+    const node = await nodeStore.updateNode(nodeId, (n) => {
+      if (value === 0) delete n.offsets[targetPlatform];
+      else n.offsets[targetPlatform] = value;
+    });
+    set({ nodeId: node?.id ?? null, ...projectNode(node) });
   },
 
-  /**
-   * Get target slug with source info (manual > auto > none)
-   * Returns MappingValue which can be string or false (not found)
-   */
-  getSlugWithSource: async (targetPlatform: string): Promise<{ slug: MappingValue | null; source: SlugSource }> => {
-    const { currentPlatform, currentSlug, manualLinks, autoLinks } = get();
-    if (!currentPlatform || !currentSlug) {
-      return { slug: null, source: 'none' };
-    }
-
-    // 1. Manual (highest priority) - only strings
-    const manual = manualLinks[targetPlatform];
-    if (typeof manual === 'string') {
-      return { slug: manual, source: 'manual' };
-    }
-
-    // 2. Auto-discovered (can be string or false)
-    const auto = autoLinks[targetPlatform];
-    if (auto !== undefined) {
-      return { slug: auto, source: 'auto' };
-    }
-
-    // 3. Not found - need to search
-    return { slug: null, source: 'none' };
+  setDisabled: async (targetPlatform: PlatformKey, value: boolean) => {
+    const { currentPlatform, currentSlug } = get();
+    if (!currentPlatform || !currentSlug) return;
+    const nodeId = await ensureNode(currentPlatform, currentSlug);
+    const node = await nodeStore.updateNode(nodeId, (n) => {
+      if (value) n.disabled[targetPlatform] = true;
+      else delete n.disabled[targetPlatform];
+    });
+    set({ nodeId: node?.id ?? null, ...projectNode(node) });
   },
 
-  /**
-   * Set loading state for a platform
-   */
-  setLoading: (targetPlatform: string, loading: boolean) => {
+  getSlugWithSource: async (targetPlatform: PlatformKey) => {
+    const { currentPlatform, currentSlug } = get();
+    if (!currentPlatform || !currentSlug) return { slug: null, source: 'none' };
+    return getTargetSlug(currentPlatform, currentSlug, targetPlatform);
+  },
+
+  setLoading: (targetPlatform: PlatformKey, loading: boolean) => {
     set((state) => {
       const updated = new Set(state.loadingPlatforms);
-      if (loading) {
-        updated.add(targetPlatform);
-      } else {
-        updated.delete(targetPlatform);
-      }
+      if (loading) updated.add(targetPlatform);
+      else updated.delete(targetPlatform);
       return { loadingPlatforms: updated };
     });
   },
 
-  /**
-   * Check if platform is loading
-   */
-  isLoading: (targetPlatform: string) => {
+  isLoading: (targetPlatform: PlatformKey) => {
     return get().loadingPlatforms.has(targetPlatform);
   },
 
-  /**
-   * Reset store to initial state
-   */
   reset: () => {
     set({
       currentPlatform: null,
       currentSlug: null,
+      nodeId: null,
       manualLinks: {},
       autoLinks: {},
+      offsets: {},
+      disabled: {},
       cachedResults: {},
       loading: false,
       loadingPlatforms: new Set(),

@@ -6,6 +6,7 @@
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import { userProgress } from '@/src/utils/storage';
+import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://inkstory.net';
@@ -57,6 +58,130 @@ interface InkstorySearchItem {
 
 type InkstorySearchResult = InkstorySearchItem[];
 
+/**
+ * One chapter as it appears in the page state.
+ *
+ * There is no cumulative ordinal here: `number` restarts inside every volume
+ * and can even be fractional (`68.1` for an extra), so reading position has to
+ * be derived by counting chapters rather than by reading a field.
+ */
+interface InkstoryChapterRef {
+  id: string;
+  branchId: string;
+  volume: number;
+  number: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Inkstory ships page state as a devalue-encoded array where every value is an
+ * index into that same array. These resolve a reference one level down.
+ */
+function derefValue(state: unknown[], ref: unknown): unknown {
+  return typeof ref === 'number' ? state[ref] : ref;
+}
+
+function derefNumber(state: unknown[], ref: unknown): number | null {
+  const value = derefValue(state, ref);
+  return typeof value === 'number' ? value : null;
+}
+
+function derefString(state: unknown[], ref: unknown): string | null {
+  const value = derefValue(state, ref);
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * Every chapter in the state, de-duplicated by id — the same chapter is
+ * encoded more than once (chapters list, bookmark, "latest" block).
+ */
+function collectChapters(state: unknown[]): InkstoryChapterRef[] {
+  const chapters = new Map<string, InkstoryChapterRef>();
+
+  for (const item of state) {
+    if (!isRecord(item)) continue;
+    if (!('number' in item) || !('volume' in item) || !('branchId' in item)) continue;
+
+    const id = derefString(state, item.id);
+    const branchId = derefString(state, item.branchId);
+    const volume = derefNumber(state, item.volume);
+    const number = derefNumber(state, item.number);
+    if (id === null || branchId === null || volume === null || number === null) continue;
+
+    chapters.set(id, { id, branchId, volume, number });
+  }
+
+  return [...chapters.values()];
+}
+
+/** Chapters of a single branch (translator) in reading order. */
+function sortBranchChapters(
+  chapters: InkstoryChapterRef[],
+  branchId: string
+): InkstoryChapterRef[] {
+  return chapters
+    .filter((chapter) => chapter.branchId === branchId)
+    .sort((a, b) => a.volume - b.volume || a.number - b.number);
+}
+
+/**
+ * Derive total chapters + reading position from Inkstory's page state.
+ *
+ * Exported because the content script reads the very same state off the live
+ * page — keeping one implementation avoids the two drifting apart.
+ */
+export function parseAstroState(state: unknown[]): {
+  chapter: number;
+  lastChapterRead: number;
+} {
+  const chapters = collectChapters(state);
+
+  // Total = the fullest branch, counted from the chapters themselves.
+  // The `chaptersCount` fields disagree (the book-level one lags behind and
+  // skips extras like `68.1`), so they only serve as a fallback for when the
+  // state carries no chapter objects at all.
+  const countPerBranch = new Map<string, number>();
+  for (const { branchId } of chapters) {
+    countPerBranch.set(branchId, (countPerBranch.get(branchId) ?? 0) + 1);
+  }
+
+  let chapter = Math.max(0, ...countPerBranch.values());
+
+  if (chapter === 0) {
+    const declaredCounts: number[] = [];
+    for (const item of state) {
+      if (!isRecord(item) || !('chaptersCount' in item)) continue;
+      const count = derefNumber(state, item.chaptersCount);
+      if (count !== null) declaredCounts.push(count);
+    }
+    chapter = Math.max(0, ...declaredCounts);
+  }
+
+  // Progress = the bookmarked chapter's position within its own branch.
+  // `chapter.number` cannot be used: it restarts per volume, so a bookmark on
+  // "volume 2, chapter 70" of a 141-chapter title used to report 70.
+  let lastChapterRead = 0;
+  for (const item of state) {
+    if (!isRecord(item) || !('chapter' in item) || !('userId' in item)) continue;
+
+    const bookmarked = derefValue(state, item.chapter);
+    if (!isRecord(bookmarked)) continue;
+
+    const id = derefString(state, bookmarked.id);
+    const branchId = derefString(state, bookmarked.branchId);
+    if (id === null || branchId === null) continue;
+
+    const ordinal =
+      sortBranchChapters(chapters, branchId).findIndex((c) => c.id === id) + 1;
+    if (ordinal > lastChapterRead) lastChapterRead = ordinal;
+  }
+
+  return { chapter, lastChapterRead };
+}
+
 export class InkstoryAPI extends BasePlatformAPI {
   readonly config: PlatformConfig = {
     key: 'inkstory',
@@ -69,9 +194,7 @@ export class InkstoryAPI extends BasePlatformAPI {
   }
 
   getSlugFromURL(url: string): string | null {
-    // https://inkstory.net/content/slug
-    const match = url.match(/\/content\/([^/?#]+)/);
-    return match?.[1] ?? null;
+    return parseSlugFromUrl(url, ['inkstory.net', 'manga.ovh'], /^\/content\/([^/?#]+)/);
   }
 
   /**
@@ -97,7 +220,6 @@ export class InkstoryAPI extends BasePlatformAPI {
         const data = await this.getMangaData(slug);
         if (data) {
           Logger.debug(this.config.key, 'Match found', slug);
-          await this.saveAutoMapping(sourcePlatform, sourceSlug, slug);
           await this.cacheResult(slug, data.chapter, data.lastChapterRead);
           return this.prepareResponse(slug, data.chapter, data.lastChapterRead);
         }
@@ -107,7 +229,6 @@ export class InkstoryAPI extends BasePlatformAPI {
     if (signal?.aborted) return null;
 
     Logger.debug(this.config.key, 'No match found');
-    await this.saveAutoMapping(sourcePlatform, sourceSlug, false);
     return null;
   }
 
@@ -156,45 +277,11 @@ export class InkstoryAPI extends BasePlatformAPI {
         return null;
       }
 
-      const data = JSON.parse(stateScript.textContent);
-      if (!Array.isArray(data)) return null;
+      const state = JSON.parse(stateScript.textContent);
+      if (!Array.isArray(state)) return null;
 
-      let chapter = 0;
-      let lastChapterRead = 0;
-
-      // Find chaptersCount - first (biggest) is total (sum of all translators)
-      // Sort descending: if 1 element take it, otherwise take second (largest translator)
-      const chapterCounts: number[] = [];
-      for (const item of data) {
-        if (item && typeof item === 'object' && !Array.isArray(item) && 'chaptersCount' in item) {
-          const countIndex = (item as Record<string, unknown>).chaptersCount;
-          if (typeof countIndex === 'number' && typeof data[countIndex] === 'number') {
-            chapterCounts.push(data[countIndex] as number);
-          }
-        }
-      }
-      chapterCounts.sort((a, b) => b - a);
-      chapter = chapterCounts.length === 1 ? chapterCounts[0] : chapterCounts[1] ?? 0;
-
-      // Find bookmark chapter number - take max from all bookmarks
-      const bookmarkChapters: number[] = [];
-      for (const item of data) {
-        if (item && typeof item === 'object' && !Array.isArray(item) && 'chapter' in item && 'userId' in item) {
-          const chapterIdx = (item as Record<string, unknown>).chapter;
-          if (typeof chapterIdx === 'number') {
-            const chapterData = data[chapterIdx] as Record<string, unknown> | undefined;
-            if (chapterData && typeof chapterData === 'object' && 'number' in chapterData) {
-              const numIdx = chapterData.number;
-              if (typeof numIdx === 'number' && typeof data[numIdx] === 'number') {
-                bookmarkChapters.push(data[numIdx] as number);
-              }
-            }
-          }
-        }
-      }
-      if (bookmarkChapters.length > 0) {
-        lastChapterRead = Math.max(...bookmarkChapters);
-      }
+      const { chapter, lastChapterRead: parsedRead } = parseAstroState(state);
+      let lastChapterRead = parsedRead;
 
       // Fallback: read from userProgress storage (saved when user visits Inkstory)
       if (lastChapterRead === 0) {

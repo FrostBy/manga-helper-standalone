@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'preact/hooks';
 import { storage } from '@wxt-dev/storage';
 import { initConfig, getAdsForSlots, type AdResult, type AdsConfig, type CacheEntry, type StorageAdapter } from 'extension-ads';
+import DOMPurify from 'dompurify';
 import { getGeoProfile } from '../utils/geoAdapter';
 
 // Fallback config from dependency (bundled at build time)
@@ -48,11 +49,18 @@ function ensureInit() {
   return initPromise;
 }
 
+// Feature flag: master switch для рекламы.
+// false → реклама полностью выключена (и в dev, и в prod).
+// true → старое поведение (dev off если forceInDev=false, prod on).
+// Включить: добавить WXT_ADS_ENABLED=true в .env.production.chrome (или .env.production).
+const ADS_FEATURE_ENABLED =
+  (import.meta.env.WXT_ADS_ENABLED ?? 'false') === 'true';
+
 /**
  * Hook to load ads for multiple slots without duplicate advertisers
  */
 export function useAds(slots: string[], forceInDev = false, refreshKey = 0): { ads: Record<string, AdResult>; loading: boolean } {
-  const skipAds = import.meta.env.DEV && !forceInDev;
+  const skipAds = !ADS_FEATURE_ENABLED || (import.meta.env.DEV && !forceInDev);
   const [ads, setAds] = useState<Record<string, AdResult>>({});
   const [loading, setLoading] = useState(!skipAds);
 
@@ -145,12 +153,19 @@ export function Island({ slot, class: className, ad: providedAd }: IslandProps) 
     );
   }
 
-  // Ad HTML - inject directly, let browser load images
+  // R1.6: sanitize HTML from remote ads config before injecting.
+  // Compromised ads.json must not lead to XSS in content-script context.
+  const sanitized = DOMPurify.sanitize(ad.html!, {
+    ALLOWED_TAGS: ['a', 'img', 'div', 'span', 'p', 'br', 'strong', 'em', 'small'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'style', 'target', 'rel', 'width', 'height'],
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  });
+
   return (
     <div
       ref={containerRef}
       class={className}
-      dangerouslySetInnerHTML={{ __html: ad.html! }}
+      dangerouslySetInnerHTML={{ __html: sanitized }}
     />
   );
 }

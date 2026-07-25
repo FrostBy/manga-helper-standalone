@@ -14,7 +14,8 @@ type MessageKey =
   | 'searchPlaceholder'
   | 'searching'
   | 'noResults'
-  | 'disablePlatform';
+  | 'disablePlatform'
+  | 'offsetLabel';
 
 /**
  * Get localized message by key

@@ -8,8 +8,13 @@ import { waitForElement, t } from '@/src/utils';
 import { useMappingsStore } from '@/src/stores/mappings';
 import { useMangaStore } from '@/src/stores/manga';
 import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
-import { getAPI, senkuroAPI } from '@/src/api';
-import { Logger } from '@/src/utils/logger';
+import { senkuroAPI } from '@/src/api';
+import {
+  loadAllPlatformsData,
+  handleRefresh as doRefresh,
+  handleSaveLink as doSaveLink,
+  handleDeleteLink as doDeleteLink,
+} from '@/src/utils/platformActions';
 import type { PlatformKey } from '@/src/types';
 import { PlatformButton, EditModal, ChapterStats } from '@/src/components';
 
@@ -49,7 +54,12 @@ export class MangaPage extends BasePage {
     this.renderModal();
 
     // Load data for each platform
-    this.loadAllPlatformsData();
+    loadAllPlatformsData(
+      this.context.currentPlatform,
+      Array.from(PlatformRegistry.getOthers(this.context.currentPlatform).keys()),
+      this.signal,
+      { loggerContext: 'SenkuroPage' }
+    );
 
     // Subscribe to store changes
     this.subscribeToStoreChanges();
@@ -134,7 +144,7 @@ export class MangaPage extends BasePage {
       <PlatformButton
         theme="senkuro"
         showOnMount={true}
-        onRefresh={(key) => this.handleRefresh(key)}
+        onRefresh={(key) => doRefresh(this.context.currentPlatform, key, this.signal, { loggerContext: 'SenkuroPage' })}
         className="platforms button button--secondary button--fluid button-size--md"
       >
         <PlatformsIcon />
@@ -153,157 +163,12 @@ export class MangaPage extends BasePage {
 
     render(
       <EditModal
-        onSave={(key, urlOrFalse) => this.handleSaveLink(key, urlOrFalse)}
-        onDelete={(key) => this.handleDeleteLink(key)}
+        onSave={(key, url) => doSaveLink(this.context.currentPlatform, key, url, this.signal, { loggerContext: 'SenkuroPage' })}
+        onDelete={(key) => doDeleteLink(this.context.currentPlatform, key, this.signal, { loggerContext: 'SenkuroPage' })}
       />,
       this.modalContainer
     );
   }
-
-  /**
-   * Load data for all other platforms
-   */
-  private async loadAllPlatformsData(): Promise<void> {
-    const otherPlatforms = PlatformRegistry.getOthers(this.context.currentPlatform);
-
-    for (const [platformKey] of otherPlatforms) {
-      if (this.signal.aborted) return;
-      this.loadPlatformData(platformKey);
-    }
-  }
-
-  /**
-   * Load data for a single platform
-   */
-  private async loadPlatformData(platformKey: PlatformKey): Promise<void> {
-    if (this.signal.aborted) return;
-
-    const store = useMappingsStore.getState();
-    const api = getAPI(platformKey);
-
-    try {
-      const { manualLinks, autoLinks } = store;
-      const existingSlug = manualLinks[platformKey] ?? autoLinks[platformKey];
-
-      if (existingSlug && typeof existingSlug === 'string') {
-        let cached = await store.loadCachedResult(platformKey);
-
-        if (!cached && 'getData' in api) {
-          const result = await (api as any).getData(existingSlug);
-          if (result) {
-            await store.loadCachedResult(platformKey);
-          }
-        }
-      } else if (existingSlug !== false) {
-        const { titles } = useMangaStore.getState();
-        if (titles.length > 0) {
-          store.setLoading(platformKey, true);
-
-          const result = await api.search(
-            this.context.currentPlatform,
-            store.currentSlug || '',
-            titles,
-            this.signal
-          );
-
-          store.setLoading(platformKey, false);
-
-          if (result) {
-            await store.saveAutoMapping(platformKey, result.slug);
-            // Fetch data to cache it
-            if ('getData' in api) {
-              await (api as any).getData(result.slug);
-            }
-            await store.loadCachedResult(platformKey);
-          } else {
-            await store.saveAutoMapping(platformKey, false);
-          }
-        }
-      }
-    } catch (error) {
-      store.setLoading(platformKey, false);
-      Logger.error('SenkuroPage', `Error loading ${platformKey}`, error);
-    }
-  }
-
-  /**
-   * Handle refresh button click
-   */
-  private handleRefresh = async (platformKey: PlatformKey): Promise<void> => {
-    const store = useMappingsStore.getState();
-    const { manualLinks, autoLinks } = store;
-    const api = getAPI(platformKey);
-
-    // Manually disabled by user - don't search, just re-resolve cache state
-    if (manualLinks[platformKey] === false) {
-      return;
-    }
-
-    const targetSlug = manualLinks[platformKey] ?? autoLinks[platformKey];
-
-    if (targetSlug && typeof targetSlug === 'string') {
-      await store.invalidateCache(platformKey, targetSlug);
-      store.setLoading(platformKey, true);
-      if ('getData' in api) {
-        await (api as any).getData(targetSlug);
-      }
-      store.setLoading(platformKey, false);
-
-      // Refresh auto-mapping TTL so loadCachedResult can resolve the slug
-      if (!manualLinks[platformKey] && autoLinks[platformKey]) {
-        await store.saveAutoMapping(platformKey, targetSlug);
-      }
-
-      await store.loadCachedResult(platformKey);
-    } else {
-      if (autoLinks[platformKey] === false) {
-        await store.deleteAutoMapping(platformKey);
-      }
-      await this.loadPlatformData(platformKey);
-    }
-  };
-
-  /**
-   * Handle save link from modal
-   */
-  private handleSaveLink = async (platformKey: PlatformKey, urlOrFalse: string | false): Promise<void> => {
-    const store = useMappingsStore.getState();
-
-    if (urlOrFalse === false) {
-      const prevSlug = store.manualLinks[platformKey] ?? store.autoLinks[platformKey];
-      await store.saveManualLink(platformKey, false);
-      if (typeof prevSlug === 'string') {
-        await store.invalidateCache(platformKey, prevSlug);
-      }
-      await store.loadCachedResult(platformKey);
-      return;
-    }
-
-    const api = getAPI(platformKey);
-    const extractedSlug = api.getSlugFromURL(urlOrFalse);
-    if (!extractedSlug) return;
-
-    await store.saveManualLink(platformKey, extractedSlug);
-    await store.invalidateCache(platformKey, extractedSlug);
-    await this.loadPlatformData(platformKey);
-  };
-
-  /**
-   * Handle delete link from modal
-   */
-  private handleDeleteLink = async (platformKey: PlatformKey): Promise<void> => {
-    const store = useMappingsStore.getState();
-    const currentSlug = store.manualLinks[platformKey] ?? store.autoLinks[platformKey];
-
-    await store.deleteManualLink(platformKey);
-    await store.deleteAutoMapping(platformKey);
-
-    if (typeof currentSlug === 'string') {
-      await store.invalidateCache(platformKey, currentSlug);
-    }
-
-    await this.loadPlatformData(platformKey);
-  };
 
   /**
    * Extract slug from current URL

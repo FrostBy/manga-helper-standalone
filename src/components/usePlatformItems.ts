@@ -28,6 +28,8 @@ export function usePlatformItems(
   const loadingPlatforms = useMappingsStore((s) => s.loadingPlatforms);
   const manualLinks = useMappingsStore((s) => s.manualLinks);
   const autoLinks = useMappingsStore((s) => s.autoLinks);
+  const offsets = useMappingsStore((s) => s.offsets);
+  const disabledMap = useMappingsStore((s) => s.disabled);
 
   const openModal = useMangaStore((s) => s.openModal);
   const freeChapters = useMangaStore((s) => s.freeChapters);
@@ -37,30 +39,38 @@ export function usePlatformItems(
   const platforms = PlatformRegistry.getOthers(currentPlatform as PlatformKey);
 
   const isDisabledKey = (key: PlatformKey): boolean => {
+    if (disabledMap[key]) return true;
     const slug = manualLinks[key] ?? autoLinks[key];
     return slug === false;
+  };
+
+  const getDisplay = (key: PlatformKey): { chapter: number; read: number } => {
+    const off = offsets[key] ?? 0;
+    const rawChapter = cachedResults[key]?.chapter ?? 0;
+    const rawRead = cachedResults[key]?.lastChapterRead ?? 0;
+    return { chapter: rawChapter + off, read: rawRead + off };
   };
 
   const sorted = Array.from(platforms.entries()).sort(([keyA], [keyB]) => {
     const disA = isDisabledKey(keyA);
     const disB = isDisabledKey(keyB);
     if (disA !== disB) return disA ? 1 : -1;
-    const chapterA = cachedResults[keyA]?.chapter ?? 0;
-    const chapterB = cachedResults[keyB]?.chapter ?? 0;
-    return chapterB - chapterA;
+    const a = getDisplay(keyA);
+    const b = getDisplay(keyB);
+    if (b.chapter !== a.chapter) return b.chapter - a.chapter;
+    return b.read - a.read;
   });
 
   return sorted.map(([key, api]) => {
     const manualValue = manualLinks[key];
     const targetSlug = manualValue ?? autoLinks[key];
-    const cached = cachedResults[key];
     const isLoading = loadingPlatforms.has(key);
     const hasMapping = typeof targetSlug === 'string';
-    const disabled = targetSlug === false;
-    const manuallyDisabled = manualValue === false;
+    const manuallyDisabled = disabledMap[key] === true;
+    const disabled = manuallyDisabled || targetSlug === false;
     const url = hasMapping ? api.link(targetSlug) : `https://${api.config.domain}`;
     const modalUrl = hasMapping ? api.link(targetSlug) : '';
-    const chapter = cached?.chapter ?? 0;
+    const { chapter, read: lastChapterRead } = getDisplay(key);
 
     return {
       key,
@@ -68,7 +78,7 @@ export function usePlatformItems(
       url,
       modalUrl,
       chapter,
-      lastChapterRead: cached?.lastChapterRead ?? 0,
+      lastChapterRead,
       isLoading,
       found: hasMapping,
       disabled,

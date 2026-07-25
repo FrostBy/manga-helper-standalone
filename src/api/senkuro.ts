@@ -5,6 +5,7 @@
 
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
+import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const GRAPHQL_URL = 'https://api.senkuro.me/graphql';
@@ -96,9 +97,7 @@ export class SenkuroAPI extends BasePlatformAPI {
   }
 
   getSlugFromURL(url: string): string | null {
-    // https://senkuro.me/manga/slug or /manga/slug/...
-    const match = url.match(/\/manga\/([^/?#]+)/);
-    return match?.[1] ?? null;
+    return parseSlugFromUrl(url, ['senkuro.me', 'senkuro.com'], /^\/manga\/([^/?#]+)/);
   }
 
   /**
@@ -143,7 +142,6 @@ export class SenkuroAPI extends BasePlatformAPI {
       const mangaData = await this.getMangaData(matchedSlug);
       if (mangaData) {
         Logger.debug(this.config.key, 'Using exact match', matchedSlug);
-        await this.saveAutoMapping(sourcePlatform, sourceSlug, matchedSlug);
         await this.cacheResult(matchedSlug, mangaData.chapter, mangaData.lastChapterRead);
         return this.prepareResponse(matchedSlug, mangaData.chapter, mangaData.lastChapterRead);
       }
@@ -155,7 +153,7 @@ export class SenkuroAPI extends BasePlatformAPI {
     for (const entitySlug of candidates) {
       if (signal?.aborted) return null;
 
-      const mangaData = await this.getMangaDataWithManga(entitySlug);
+      const mangaData = await this.getMangaData(entitySlug);
       if (!mangaData) continue;
 
       Logger.debug(this.config.key, 'Checking alternativeNames', {
@@ -171,7 +169,6 @@ export class SenkuroAPI extends BasePlatformAPI {
 
       if (hasMatch) {
         Logger.debug(this.config.key, 'Match found in alternativeNames', entitySlug);
-        await this.saveAutoMapping(sourcePlatform, sourceSlug, entitySlug);
         await this.cacheResult(entitySlug, mangaData.chapter, mangaData.lastChapterRead);
         return this.prepareResponse(entitySlug, mangaData.chapter, mangaData.lastChapterRead);
       }
@@ -180,9 +177,6 @@ export class SenkuroAPI extends BasePlatformAPI {
     if (signal?.aborted) return null;
 
     Logger.debug(this.config.key, 'No match found');
-
-    // No results - save negative mapping to prevent re-search
-    await this.saveAutoMapping(sourcePlatform, sourceSlug, false);
     return null;
   }
 
@@ -238,18 +232,9 @@ export class SenkuroAPI extends BasePlatformAPI {
   }
 
   /**
-   * Get manga with progress data
+   * Get manga progress + alternativeNames (for title matching).
    */
-  private async getMangaData(slug: string): Promise<{ chapter: number; lastChapterRead: number } | null> {
-    const result = await this.getMangaDataWithManga(slug);
-    if (!result) return null;
-    return { chapter: result.chapter, lastChapterRead: result.lastChapterRead };
-  }
-
-  /**
-   * Get manga with progress data + alternativeNames for title matching
-   */
-  private async getMangaDataWithManga(slug: string): Promise<{
+  private async getMangaData(slug: string): Promise<{
     chapter: number;
     lastChapterRead: number;
     alternativeNames?: Array<{ content?: string }>;

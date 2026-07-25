@@ -15,6 +15,7 @@ import '@/src/platforms/senkuro.com/api';
 import '@/src/platforms/mangabuff.ru/api';
 import '@/src/platforms/readmanga.io/api';
 import '@/src/platforms/inkstory.net/api';
+import '@/src/platforms/com-x.life/api';
 
 export default defineContentScript({
   matches: ['*://*.mangabuff.ru/*'],

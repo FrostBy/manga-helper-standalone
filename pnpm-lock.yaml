@@ -8,9 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@types/dompurify':
+        specifier: ^3.2.0
+        version: 3.2.0
       '@wxt-dev/storage':
         specifier: ^1.2.6
         version: 1.2.6
+      dompurify:
+        specifier: ^3.4.0
+        version: 3.4.0
       extension-ads:
         specifier: github:FrostBy/extension-ads
         version: https://codeload.github.com/FrostBy/extension-ads/tar.gz/b89cf153db9d1a32a419ee7fb8d43f18ebefda79
@@ -786,6 +792,10 @@ packages:
   '@types/chrome@0.1.32':
     resolution: {integrity: sha512-n5Cqlh7zyAqRLQWLXkeV5K/1BgDZdVcO/dJSTa8x+7w+sx7m73UrDmduAptg4KorMtyTW2TNnPu8RGeaDMKNGg==}
 
+  '@types/dompurify@3.2.0':
+    resolution: {integrity: sha512-Fgg31wv9QbLDA0SpTOXO3MaxySc4DKGLi8sna4/Utjo4r3ZRPdCt4UQee8BWr+Q5z21yifghREPJGYaEOEIACg==}
+    deprecated: This is a stub types definition. dompurify provides its own type definitions, so you do not need this installed.
+
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
 
@@ -806,6 +816,9 @@ packages:
 
   '@types/tippy.js@6.3.0':
     resolution: {integrity: sha512-OYontJ7KwB9ijDusNOk3r1uArk35J5lOZ6Mq85L6Y9LTkiLi+GX49Q6Y8bI6DKfSE70Z+B54nUirBpudCkO+Dw==}
+
+  '@types/trusted-types@2.0.7':
+    resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
 
   '@types/validator@13.15.10':
     resolution: {integrity: sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA==}
@@ -1203,6 +1216,9 @@ packages:
   domhandler@5.0.3:
     resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
     engines: {node: '>= 4'}
+
+  dompurify@3.4.0:
+    resolution: {integrity: sha512-nolgK9JcaUXMSmW+j1yaSvaEaoXYHwWyGJlkoCTghc97KgGDDSnpoU/PlEnw63Ah+TGKFOyY+X5LnxaWbCSfXg==}
 
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
@@ -3130,6 +3146,10 @@ snapshots:
       '@types/filesystem': 0.0.36
       '@types/har-format': 1.2.16
 
+  '@types/dompurify@3.2.0':
+    dependencies:
+      dompurify: 3.4.0
+
   '@types/estree@1.0.8': {}
 
   '@types/filesystem@0.0.36':
@@ -3147,6 +3167,9 @@ snapshots:
       undici-types: 7.16.0
 
   '@types/tippy.js@6.3.0': {}
+
+  '@types/trusted-types@2.0.7':
+    optional: true
 
   '@types/validator@13.15.10': {}
 
@@ -3531,6 +3554,10 @@ snapshots:
   domhandler@5.0.3:
     dependencies:
       domelementtype: 2.3.0
+
+  dompurify@3.4.0:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
 
   domutils@3.2.2:
     dependencies:

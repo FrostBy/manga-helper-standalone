@@ -44,6 +44,9 @@
   "disablePlatform": {
     "message": "Unavailable on this platform"
   },
+  "offsetLabel": {
+    "message": "Chapter offset"
+  },
   "onboardingText": {
     "message": "Click the extension icon to discover more features"
   },

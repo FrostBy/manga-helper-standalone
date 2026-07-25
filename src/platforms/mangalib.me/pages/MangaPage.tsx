@@ -10,8 +10,14 @@ import { waitForElement, triggerRawClick } from '@/src/utils/dom';
 import { useMappingsStore } from '@/src/stores/mappings';
 import { useMangaStore } from '@/src/stores/manga';
 import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
-import { getAPI, mangalibAPI } from '@/src/api';
-import { Logger } from '@/src/utils/logger';
+import { mangalibAPI } from '@/src/api';
+import type { MangaLibChapter } from '@/src/api/mangalib';
+import {
+  loadAllPlatformsData,
+  handleRefresh as doRefresh,
+  handleSaveLink as doSaveLink,
+  handleDeleteLink as doDeleteLink,
+} from '@/src/utils/platformActions';
 import type { ChaptersResponse, PlatformKey } from '@/src/types';
 import { PlatformButton, EditModal, ChapterStats } from '@/src/components';
 import { createDropdownButton } from './templates';
@@ -60,7 +66,12 @@ export class MangaPage extends BasePage {
     this.renderModal();
 
     // Load data for each platform
-    this.loadAllPlatformsData();
+    loadAllPlatformsData(
+      this.context.currentPlatform,
+      Array.from(PlatformRegistry.getOthers(this.context.currentPlatform).keys()),
+      this.signal,
+      { loggerContext: 'MangaLibPage', onLoaded: (k) => this.checkNewChapters(k) }
+    );
 
     // Subscribe to store changes
     this.subscribeToStoreChanges();
@@ -86,10 +97,11 @@ export class MangaPage extends BasePage {
     let freeChapters = 0;
     if (chapters?.data) {
       const freeList = chapters.data.filter((ch) => {
-        const restricted = (ch as any).branches?.[0]?.restricted_view;
+        const restricted = (ch as MangaLibChapter).branches?.[0]?.restricted_view;
         return !restricted || restricted.is_open === true;
       });
-      freeChapters = freeList.at(-1)?.number ?? 0;
+      const last = freeList.at(-1) as MangaLibChapter | undefined;
+      freeChapters = Number(last?.item_number) || Number(last?.number) || 0;
     }
 
     return {
@@ -110,7 +122,8 @@ export class MangaPage extends BasePage {
     const { chapters, lastChapterRead } = useMangaStore.getState();
     if (!chapters?.data?.length) return;
 
-    const lastChapter = chapters.data.at(-1)?.number ?? 0;
+    const last = chapters.data.at(-1) as MangaLibChapter | undefined;
+    const lastChapter = Number(last?.item_number) || Number(last?.number) || 0;
 
     // Create container if not exists
     if (!this.chaptersStatsContainer) {
@@ -139,7 +152,7 @@ export class MangaPage extends BasePage {
       <PlatformButton
         theme="dropdown"
         showOnMount={true}
-        onRefresh={(key) => this.handleRefresh(key)}
+        onRefresh={(key) => doRefresh(this.context.currentPlatform, key, this.signal, { loggerContext: 'MangaLibPage', onLoaded: (k) => this.checkNewChapters(k) })}
         asChild
       >
         <NativeButton />
@@ -162,83 +175,11 @@ export class MangaPage extends BasePage {
 
     render(
       <EditModal
-        onSave={(key, urlOrFalse) => this.handleSaveLink(key, urlOrFalse)}
-        onDelete={(key) => this.handleDeleteLink(key)}
+        onSave={(key, url) => doSaveLink(this.context.currentPlatform, key, url, this.signal, { loggerContext: 'MangaLibPage', onLoaded: (k) => this.checkNewChapters(k) })}
+        onDelete={(key) => doDeleteLink(this.context.currentPlatform, key, this.signal, { loggerContext: 'MangaLibPage', onLoaded: (k) => this.checkNewChapters(k) })}
       />,
       this.modalContainer
     );
-  }
-
-  /**
-   * Load data for all other platforms
-   */
-  private async loadAllPlatformsData(): Promise<void> {
-    const otherPlatforms = PlatformRegistry.getOthers(this.context.currentPlatform);
-
-    for (const [platformKey] of otherPlatforms) {
-      if (this.signal.aborted) return;
-      this.loadPlatformData(platformKey);
-    }
-  }
-
-  /**
-   * Load data for a single platform
-   */
-  private async loadPlatformData(platformKey: PlatformKey): Promise<void> {
-    if (this.signal.aborted) return;
-
-    const store = useMappingsStore.getState();
-    const api = getAPI(platformKey);
-
-    try {
-      // Check if we have a mapping already
-      const { manualLinks, autoLinks } = store;
-      const existingSlug = manualLinks[platformKey] ?? autoLinks[platformKey];
-
-      if (existingSlug && typeof existingSlug === 'string') {
-        // Have mapping - load cached or fetch fresh data
-        let cached = await store.loadCachedResult(platformKey);
-
-        if (!cached && 'getData' in api) {
-          // Fetch fresh data
-          const result = await (api as any).getData(existingSlug);
-          if (result) {
-            cached = await store.loadCachedResult(platformKey);
-          }
-        }
-      } else if (existingSlug !== false) {
-        // No mapping yet - search for manga
-        const { titles } = useMangaStore.getState();
-        if (titles.length > 0) {
-          store.setLoading(platformKey, true);
-
-          const result = await api.search(
-            this.context.currentPlatform,
-            store.currentSlug || '',
-            titles,
-            this.signal
-          );
-
-          store.setLoading(platformKey, false);
-
-          if (result) {
-            // Update autoLinks in store with found slug
-            await store.saveAutoMapping(platformKey, result.slug);
-            // Refresh cached results in store
-            await store.loadCachedResult(platformKey);
-          } else {
-            // Save negative mapping to prevent re-search
-            await store.saveAutoMapping(platformKey, false);
-          }
-        }
-      }
-
-      // Check if new chapters available
-      this.checkNewChapters(platformKey);
-    } catch (error) {
-      store.setLoading(platformKey, false);
-      Logger.error('MangaLibPage', `Error loading ${platformKey}`, error);
-    }
   }
 
   /**
@@ -246,11 +187,12 @@ export class MangaPage extends BasePage {
    */
   private checkNewChapters(platformKey: PlatformKey): void {
     const { freeChapters } = useMangaStore.getState();
-    const { cachedResults } = useMappingsStore.getState();
+    const { cachedResults, offsets } = useMappingsStore.getState();
 
     const cached = cachedResults[platformKey];
+    const offset = offsets[platformKey] ?? 0;
 
-    if (cached && cached.chapter > freeChapters) {
+    if (cached && cached.chapter + offset > freeChapters) {
       useMangaStore.getState().setHasNewChapters(true);
     }
   }
@@ -270,103 +212,6 @@ export class MangaPage extends BasePage {
       // Note: hasNewChapters is handled by PlatformButton component via store
     });
   }
-
-  /**
-   * Handle refresh button click
-   */
-  private handleRefresh = async (platformKey: PlatformKey): Promise<void> => {
-    const store = useMappingsStore.getState();
-    const { manualLinks, autoLinks } = store;
-    const api = getAPI(platformKey);
-
-    // Manually disabled by user - don't search
-    if (manualLinks[platformKey] === false) {
-      return;
-    }
-
-    // Get target slug
-    const targetSlug = manualLinks[platformKey] ?? autoLinks[platformKey];
-
-    if (targetSlug && typeof targetSlug === 'string') {
-      // Invalidate cache
-      await store.invalidateCache(platformKey, targetSlug);
-
-      // Fetch fresh data
-      store.setLoading(platformKey, true);
-      if ('getData' in api) {
-        await (api as any).getData(targetSlug);
-      }
-      store.setLoading(platformKey, false);
-
-      // Refresh auto-mapping TTL so loadCachedResult can resolve the slug
-      if (!manualLinks[platformKey] && autoLinks[platformKey]) {
-        await store.saveAutoMapping(platformKey, targetSlug);
-      }
-
-      // Reload cached result into store
-      await store.loadCachedResult(platformKey);
-    } else {
-      // No mapping or negative mapping - clear and re-search
-      if (autoLinks[platformKey] === false) {
-        // Clear negative mapping to allow re-search
-        await store.deleteAutoMapping(platformKey);
-      }
-      await this.loadPlatformData(platformKey);
-    }
-
-    // Check for new chapters
-    this.checkNewChapters(platformKey);
-  };
-
-  /**
-   * Handle save link from modal
-   */
-  private handleSaveLink = async (platformKey: PlatformKey, urlOrFalse: string | false): Promise<void> => {
-    const store = useMappingsStore.getState();
-
-    if (urlOrFalse === false) {
-      const prevSlug = store.manualLinks[platformKey] ?? store.autoLinks[platformKey];
-      await store.saveManualLink(platformKey, false);
-      if (typeof prevSlug === 'string') {
-        await store.invalidateCache(platformKey, prevSlug);
-      }
-      await store.loadCachedResult(platformKey);
-      return;
-    }
-
-    const api = getAPI(platformKey);
-    const extractedSlug = api.getSlugFromURL(urlOrFalse);
-    if (!extractedSlug) return;
-
-    // Save the manual link
-    await store.saveManualLink(platformKey, extractedSlug);
-
-    // Invalidate cache and reload data for this platform
-    await store.invalidateCache(platformKey, extractedSlug);
-    await this.loadPlatformData(platformKey);
-  };
-
-  /**
-   * Handle delete link from modal
-   */
-  private handleDeleteLink = async (platformKey: PlatformKey): Promise<void> => {
-    const store = useMappingsStore.getState();
-
-    // Get current slug before deleting (for cache invalidation)
-    const currentSlug = store.manualLinks[platformKey] ?? store.autoLinks[platformKey];
-
-    // Delete both manual and auto links
-    await store.deleteManualLink(platformKey);
-    await store.deleteAutoMapping(platformKey);
-
-    // Invalidate cache if we had a slug
-    if (typeof currentSlug === 'string') {
-      await store.invalidateCache(platformKey, currentSlug);
-    }
-
-    // Reload data for this platform (will try to search again)
-    await this.loadPlatformData(platformKey);
-  };
 
   /**
    * Select tab by triggering raw click (mouseup event)

@@ -31,6 +31,7 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 | MangaBuff | mangabuff.ru | ✅ Full support |
 | ReadManga | readmanga.io | ✅ Full support |
 | Inkstory | inkstory.net | ✅ Full support |
+| Com-x | com-x.life | ✅ Full support |
 
 ## Installation
 

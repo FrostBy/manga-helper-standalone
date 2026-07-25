@@ -2,12 +2,12 @@ import { render } from 'preact';
 import { useState, useCallback, useEffect } from 'preact/hooks';
 import { Island, useAds } from '@/src/islands/Island';
 import { logLevelItem, LogLevel } from '@/src/utils/logger';
-import { mangalibAPI, senkuroAPI, mangabuffAPI, readmangaAPI, inkstoryAPI } from '@/src/api';
+import { mangalibAPI, senkuroAPI, mangabuffAPI, readmangaAPI, inkstoryAPI, comxAPI } from '@/src/api';
 import './style.scss';
 
 const AD_SLOTS = ['popup-banner', 'popup-skyscraper'];
 
-type Theme = 'default' | 'mangalib' | 'senkuro' | 'mangabuff' | 'readmanga' | 'inkstory';
+type Theme = 'default' | 'mangalib' | 'senkuro' | 'mangabuff' | 'readmanga' | 'inkstory' | 'comx';
 
 interface PopupSearchResult {
   platform: string;
@@ -32,6 +32,7 @@ const PLATFORMS = {
   mangabuff: { api: mangabuffAPI, title: 'MangaBuff' },
   readmanga: { api: readmangaAPI, title: 'ReadManga' },
   inkstory: { api: inkstoryAPI, title: 'Inkstory' },
+  comx: { api: comxAPI, title: 'Com-x' },
 };
 
 const LOG_LEVELS = [
@@ -74,6 +75,8 @@ function App() {
         setTheme('readmanga');
       } else if (url.includes('inkstory') || url.includes('manga.ovh')) {
         setTheme('inkstory');
+      } else if (url.includes('com-x.life')) {
+        setTheme('comx');
       }
     }).catch(() => {});
   }, []);

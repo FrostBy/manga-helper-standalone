@@ -3,11 +3,32 @@
  * Uses REST API + HTML parsing
  */
 
+import { storage } from '@wxt-dev/storage';
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
+import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://a.zazaza.me';
+
+// API meta cached per slug — externalId is stable for life of the title;
+// siteId / xApiUrl are platform constants but we still extract per page for safety.
+interface ReadMangaMeta {
+  externalId: string;
+  type: string;
+  siteId: string;
+  xApiUrl: string;
+}
+
+interface ReadMangaProgressResponse {
+  bookmark?: { num?: number | null; vol?: number | null } | null;
+  progress?: { num?: number | null; vol?: number | null; times?: number | null } | null;
+}
+
+const META_CACHE_KEY = 'local:readmanga-meta' as const;
+const META_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+type MetaCacheEntry = ReadMangaMeta & { expires: number };
+type MetaCache = Record<string, MetaCacheEntry>;
 
 /**
  * ReadManga Search API Response DTO
@@ -59,9 +80,7 @@ export class ReadMangaAPI extends BasePlatformAPI {
   }
 
   getSlugFromURL(url: string): string | null {
-    // https://a.zazaza.me/slug
-    const match = url.match(/zazaza\.me\/([^/?#]+)/);
-    return match?.[1] ?? null;
+    return parseSlugFromUrl(url, ['zazaza.me', 'readmanga.io', 'mintmanga.com'], /^\/([^/?#]+)/);
   }
 
   /**
@@ -87,7 +106,6 @@ export class ReadMangaAPI extends BasePlatformAPI {
         const data = await this.getMangaData(slug);
         if (data) {
           Logger.debug(this.config.key, 'Match found', slug);
-          await this.saveAutoMapping(sourcePlatform, sourceSlug, slug);
           await this.cacheResult(slug, data.chapter, data.lastChapterRead);
           return this.prepareResponse(slug, data.chapter, data.lastChapterRead);
         }
@@ -97,7 +115,6 @@ export class ReadMangaAPI extends BasePlatformAPI {
     if (signal?.aborted) return null;
 
     Logger.debug(this.config.key, 'No match found');
-    await this.saveAutoMapping(sourcePlatform, sourceSlug, false);
     return null;
   }
 
@@ -126,44 +143,82 @@ export class ReadMangaAPI extends BasePlatformAPI {
   }
 
   /**
-   * Get manga data by parsing HTML
-   * Chapter value is stored * 10, so we divide by 10
+   * Parse total chapter count from HTML (data-num of first item-title td).
+   * ReadManga stores chapters * 10 → /10 (no rounding).
+   */
+  private parseChapterCount(html: string): number {
+    const chaptersListStart = html.indexOf('id="chapters-list"');
+    if (chaptersListStart === -1) return 0;
+    const afterChaptersList = html.slice(chaptersListStart);
+    const dataNumMatch =
+      afterChaptersList.match(/<td[^>]*class="[^"]*item-title[^"]*"[^>]*data-num="(\d+)"/) ||
+      afterChaptersList.match(/<td[^>]*data-num="(\d+)"[^>]*class="[^"]*item-title[^"]*"/);
+    const rawChapter = dataNumMatch ? parseInt(dataNumMatch[1], 10) : 0;
+    return rawChapter / 10;
+  }
+
+  /**
+   * Per-slug meta cache (30 days). Avoids re-fetching HTML when only progress
+   * is needed on refresh.
+   */
+  private async getCachedMeta(slug: string): Promise<ReadMangaMeta | null> {
+    const all = (await storage.getItem<MetaCache>(META_CACHE_KEY)) ?? {};
+    const entry = all[slug];
+    if (!entry || Date.now() > entry.expires) return null;
+    const { expires, ...meta } = entry;
+    void expires;
+    return meta;
+  }
+
+  private async setCachedMeta(slug: string, meta: ReadMangaMeta): Promise<void> {
+    try {
+      const all = (await storage.getItem<MetaCache>(META_CACHE_KEY)) ?? {};
+      all[slug] = { ...meta, expires: Date.now() + META_TTL_MS };
+      await storage.setItem(META_CACHE_KEY, all);
+    } catch (error) {
+      Logger.warn(this.config.key, 'Failed to cache meta', error);
+    }
+  }
+
+  /**
+   * Get manga data with fast-path / slow-path:
+   *  - Fast: if cached meta + cached chapter count exist AND have token,
+   *    call API directly. No HTML fetch.
+   *  - Slow: fetch HTML, parse chapter + meta, cache meta, try API,
+   *    fall back to DOM `data-visited="true"` rows if API fails.
    */
   private async getMangaData(slug: string): Promise<{ chapter: number; lastChapterRead: number } | null> {
-    const url = `${BASE_URL}/${slug}#chapters-list`;
-    const html = await this.fetch<string>(url);
+    const token = await this.getToken();
+    const cachedMeta = await this.getCachedMeta(slug);
+    const cachedResult = await this.getCached(slug);
 
+    // Fast path — only progress needs refresh, everything else from cache.
+    if (token && cachedMeta && cachedResult) {
+      const raw = await this.fetchProgressDirect(cachedMeta, token);
+      if (raw !== null) {
+        Logger.debug(this.config.key, 'API-only refresh (no HTML)', { slug, raw });
+        return { chapter: cachedResult.chapter, lastChapterRead: raw / 10 };
+      }
+      Logger.debug(this.config.key, 'API fast-path failed, falling back to HTML', { slug });
+    }
+
+    // Slow path — fetch full page.
+    const html = await this.fetch<string>(`${BASE_URL}/${slug}#chapters-list`);
     if (!html || typeof html !== 'string') return null;
 
     try {
-      // Parse data-num from first item-title td inside #chapters-list
-      const chaptersListStart = html.indexOf('id="chapters-list"');
-      let rawChapter = 0;
+      const chapter = this.parseChapterCount(html);
 
-      if (chaptersListStart !== -1) {
-        const afterChaptersList = html.slice(chaptersListStart);
-        // Find first data-num in item-title td (attributes can be in any order)
-        const dataNumMatch = afterChaptersList.match(/<td[^>]*class="[^"]*item-title[^"]*"[^>]*data-num="(\d+)"/)
-          || afterChaptersList.match(/<td[^>]*data-num="(\d+)"[^>]*class="[^"]*item-title[^"]*"/);
-        rawChapter = dataNumMatch ? parseInt(dataNumMatch[1], 10) : 0;
-      }
+      const meta = this.extractApiMeta(html);
+      if (meta) await this.setCachedMeta(slug, meta);
 
-      // ReadManga stores chapters * 10
-      const chapter = rawChapter / 10;
-
-      // Try to get reading progress
       let lastChapterRead = 0;
-
-      // First try API with token
-      const token = await this.getToken();
-      if (token) {
-        const bookmarkResult = await this.fetchBookmark(html, token);
-        if (bookmarkResult) {
-          lastChapterRead = bookmarkResult / 10;
-        }
+      if (token && meta) {
+        const raw = await this.fetchProgressDirect(meta, token);
+        if (raw !== null) lastChapterRead = raw / 10;
       }
 
-      // Fallback: parse visited chapters from HTML (chapter-status item-visited class)
+      // DOM fallback — works even without token (user reads while logged-out).
       if (lastChapterRead === 0) {
         lastChapterRead = this.parseVisitedChapters(html);
       }
@@ -176,23 +231,20 @@ export class ReadMangaAPI extends BasePlatformAPI {
   }
 
   /**
-   * Parse visited chapters from HTML by looking for item-visited class
-   * Returns the highest visited chapter number / 10
+   * Parse visited chapters from HTML by looking at <tr data-visited="true">.
+   * The class `item-visited` lives on the inner <i>, not on <tr> — the real
+   * marker is the `data-visited="true"` attribute on the row itself.
+   * Returns the highest visited chapter number / 10 (no rounding).
    */
   private parseVisitedChapters(html: string): number {
-    // Find all data-num values in rows with item-visited class
-    // Pattern: <tr class="...item-visited...">...<td ... data-num="123">
-    const visitedMatches = html.matchAll(/<tr[^>]*class="[^"]*item-visited[^"]*"[^>]*>[\s\S]*?<td[^>]*data-num="(\d+)"/g);
-
-    let maxVisited = 0;
-    for (const match of visitedMatches) {
-      const num = parseInt(match[1], 10);
-      if (num > maxVisited) {
-        maxVisited = num;
-      }
-    }
-
-    return maxVisited / 10;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const visited = doc.querySelectorAll('tr[data-visited="true"]');
+    let max = 0;
+    visited.forEach((tr) => {
+      const n = parseInt(tr.getAttribute('data-num') ?? '0', 10);
+      if (n > max) max = n;
+    });
+    return max / 10;
   }
 
   /**
@@ -237,45 +289,58 @@ export class ReadMangaAPI extends BasePlatformAPI {
   }
 
   /**
-   * Fetch bookmark progress from API
+   * Extract API params from HTML page (externalId/type from #chapters-list,
+   * siteId/xApiUrl from inline <script> vars).
+   * Returns null if any param missing — page layout changed.
    */
-  private async fetchBookmark(html: string, token: string): Promise<number | null> {
+  private extractApiMeta(html: string): ReadMangaMeta | null {
+    const variables = this.extractServerVariables(html);
+    if (!variables.xApiUrl || !variables.siteId) {
+      Logger.warn(this.config.key, 'Missing X_API_URL / RM_site_id in page', variables);
+      return null;
+    }
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const chaptersList = doc.querySelector('#chapters-list');
+    if (!chaptersList) {
+      Logger.warn(this.config.key, '#chapters-list not found in HTML');
+      return null;
+    }
+    const externalId = chaptersList.getAttribute('data-id');
+    const type = chaptersList.getAttribute('data-type');
+    if (!externalId || !type) {
+      Logger.warn(this.config.key, 'chapters-list missing data-id/data-type', { externalId, type });
+      return null;
+    }
+    return { externalId, type, siteId: variables.siteId, xApiUrl: variables.xApiUrl };
+  }
+
+  /**
+   * POST progress API with already-extracted params (no HTML needed).
+   * Returns raw `num` (still ×10 — caller divides). Tries `progress.num`
+   * then falls back to `bookmark.num` so we don't lose data if API shape shifts.
+   */
+  private async fetchProgressDirect(meta: ReadMangaMeta, token: string): Promise<number | null> {
     try {
-      const variables = this.extractServerVariables(html);
-      if (!variables.xApiUrl) return null;
-
-      // Parse externalId and type from #chapters-list
-      const externalIdMatch = html.match(/id="chapters-list"[^>]*data-id="(\d+)"/);
-      const typeMatch = html.match(/id="chapters-list"[^>]*data-type="([^"]+)"/);
-
-      if (!externalIdMatch || !typeMatch || !variables.siteId) return null;
-
-      const externalId = externalIdMatch[1];
-      const type = typeMatch[1];
-
-      // Build multipart form data
       const boundary = '----WebKitFormBoundary' + Math.random().toString(36).slice(2);
       const formBody = [
         `--${boundary}`,
         'Content-Disposition: form-data; name="siteId"',
         '',
-        variables.siteId,
+        meta.siteId,
         `--${boundary}`,
         'Content-Disposition: form-data; name="type"',
         '',
-        type,
+        meta.type,
         `--${boundary}`,
         'Content-Disposition: form-data; name="externalId"',
         '',
-        externalId,
+        meta.externalId,
         `--${boundary}--`,
         '',
       ].join('\r\n');
 
-      const requestUrl = `${variables.xApiUrl}/api/bookmark/progress`;
-
-      const response = await this.fetch<{ progress?: { num?: number } }>(
-        requestUrl,
+      const response = await this.fetch<ReadMangaProgressResponse>(
+        `${meta.xApiUrl}/api/bookmark/progress`,
         {
           method: 'POST',
           headers: {
@@ -286,9 +351,10 @@ export class ReadMangaAPI extends BasePlatformAPI {
         }
       );
 
-      return response?.progress?.num ?? null;
+      Logger.debug(this.config.key, 'progress API response', response);
+      return response?.progress?.num ?? response?.bookmark?.num ?? null;
     } catch (error) {
-      Logger.warn(this.config.key, 'Failed to fetch bookmark', error);
+      Logger.warn(this.config.key, 'Failed to fetch progress', error);
       return null;
     }
   }
@@ -378,25 +444,26 @@ export class ReadMangaAPI extends BasePlatformAPI {
   }
 
   /**
-   * Get user's bookmark
+   * Get user's bookmark — API-only when meta is cached; otherwise fetch HTML once.
    */
   async getBookmark(slug: string): Promise<Bookmark | null> {
     const token = await this.getToken();
     if (!token) return null;
 
-    // Fetch page to get externalId and server variables
-    const url = `${BASE_URL}/${slug}#chapters-list`;
-    const html = await this.fetch<string>(url);
+    let meta = await this.getCachedMeta(slug);
+    if (!meta) {
+      const html = await this.fetch<string>(`${BASE_URL}/${slug}#chapters-list`);
+      if (!html || typeof html !== 'string') return null;
+      meta = this.extractApiMeta(html);
+      if (!meta) return null;
+      await this.setCachedMeta(slug, meta);
+    }
 
-    if (!html || typeof html !== 'string') return null;
+    const raw = await this.fetchProgressDirect(meta, token);
+    if (raw === null) return null;
 
-    const bookmarkNum = await this.fetchBookmark(html, token);
-    if (bookmarkNum === null) return null;
-
-    return {
-      chapter: bookmarkNum / 10,
-      lastChapterRead: bookmarkNum / 10,
-    };
+    const value = raw / 10;
+    return { chapter: value, lastChapterRead: value };
   }
 
   /**

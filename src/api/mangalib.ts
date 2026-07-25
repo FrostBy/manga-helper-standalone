@@ -5,7 +5,23 @@
 
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
-import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
+import { parseSlugFromUrl } from '@/src/utils/urlValidation';
+import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark, Chapter } from '@/src/types';
+
+/** R4.3: MangaLib-specific chapter with paid-access branch metadata.
+ * `item_number` — cumulative ordinal across all volumes (1, 2, ..., 95).
+ * Use it for total chapter count; `number` is per-volume and can reset
+ * (some teams number "Том 1 гл. 85 → Том 2 гл. 1" which breaks naïve counting). */
+export interface MangaLibChapter extends Chapter {
+  item_number?: number;
+  branches?: Array<{
+    restricted_view?: { is_open?: boolean };
+  }>;
+}
+
+interface MangaLibChaptersResponse {
+  data: MangaLibChapter[];
+}
 
 const DEFAULT_API_BASE = 'https://api.cdnlibs.org/api/manga';
 
@@ -99,6 +115,9 @@ interface MangaLibMeta {
 
 interface MangaLibBookmarkResponse {
   data?: {
+    // `meta.item_number` — cumulative chapter number for the bookmark.
+    // Prefer it over `item.number` which is per-volume and can reset.
+    meta?: { item_number?: number; [key: string]: unknown };
     item?: {
       number: number;
       [key: string]: unknown;
@@ -134,9 +153,11 @@ export class MangaLibAPI extends BasePlatformAPI {
   }
 
   getSlugFromURL(url: string): string | null {
-    // https://mangalib.me/ru/manga/123--slug or /manga/123--slug
-    const match = url.match(/\/manga\/(\d+--[^/?#]+)/);
-    return match?.[1] ?? null;
+    return parseSlugFromUrl(
+      url,
+      ['mangalib.me', 'mangalib.org', 'hentailib.me'],
+      /\/manga\/(\d+--[^/?#]+)/
+    );
   }
 
   /**
@@ -182,8 +203,6 @@ export class MangaLibAPI extends BasePlatformAPI {
         const data = await this.getData(foundSlug);
         if (data) {
           Logger.debug(this.config.key, 'Match found', foundSlug);
-          // Save auto mapping
-          await this.saveAutoMapping(sourcePlatform, sourceSlug, foundSlug);
           return data;
         }
       }
@@ -192,8 +211,6 @@ export class MangaLibAPI extends BasePlatformAPI {
     if (signal?.aborted) return null;
 
     Logger.debug(this.config.key, 'No match found');
-    // No results - save negative mapping to prevent re-search
-    await this.saveAutoMapping(sourcePlatform, sourceSlug, false);
     return null;
   }
 
@@ -260,11 +277,18 @@ export class MangaLibAPI extends BasePlatformAPI {
     const url = `${this.apiBase}/${slug}/bookmark`;
     const response = await this.fetch<MangaLibBookmarkResponse>(url, { headers });
 
-    if (!response?.data?.item) return null;
+    if (!response?.data) return null;
 
+    // Prefer cumulative `meta.item_number` (95 for the 95th chapter overall).
+    // Fall back to `item.number` for old/odd responses. Coerce to number to
+    // avoid string concat (e.g. "180" + 0 → "1800").
+    const n =
+      Number(response.data.meta?.item_number) ||
+      Number(response.data.item?.number) ||
+      0;
     return {
-      chapter: response.data.item.number,
-      lastChapterRead: response.data.item.number,
+      chapter: n,
+      lastChapterRead: n,
     };
   }
 
@@ -278,20 +302,28 @@ export class MangaLibAPI extends BasePlatformAPI {
       return this.prepareResponse(slug, cached.chapter, cached.lastChapterRead);
     }
 
-    // Fetch chapters
-    const chapters = await this.getChapters(slug);
+    // Fetch chapters (typed with MangaLib branches for paid-access filter)
+    const token = await this.getToken();
+    const chHeaders: Record<string, string> = { 'site-id': this.siteId };
+    if (token) chHeaders['authorization'] = `Bearer ${token}`;
+    const chapters = await this.fetch<MangaLibChaptersResponse>(
+      `${this.apiBase}/${slug}/chapters`,
+      { headers: chHeaders }
+    );
     if (!chapters?.data?.length) return null;
 
     // Filter to free chapters only (no restricted_view or is_open: true)
-    const freeChapters = chapters.data.filter((ch: any) => {
+    const freeChapters = chapters.data.filter((ch) => {
       const restricted = ch.branches?.[0]?.restricted_view;
       return !restricted || restricted.is_open === true;
     });
 
-    // Get last free chapter number
-    const lastChapter = freeChapters.at(-1)?.number ?? 0;
+    // Prefer cumulative `item_number` (1..N across all volumes) so titles
+    // that reset numbering between volumes ("Том 1 гл. 85 → Том 2 гл. 1")
+    // still show the real total. Fall back to `number` if missing.
+    const last = freeChapters.at(-1);
+    const lastChapter = Number(last?.item_number) || Number(last?.number) || 0;
 
-    // Get bookmark (last read chapter)
     const bookmark = await this.getBookmark(slug);
     const lastChapterRead = bookmark?.lastChapterRead ?? 0;
 

@@ -6,6 +6,7 @@
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import { userProgress } from '@/src/utils/storage';
+import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://mangabuff.ru';
@@ -58,9 +59,7 @@ export class MangaBuffAPI extends BasePlatformAPI {
   }
 
   getSlugFromURL(url: string): string | null {
-    // https://mangabuff.ru/manga/slug
-    const match = url.match(/\/manga\/([^/?#]+)/);
-    return match?.[1] ?? null;
+    return parseSlugFromUrl(url, ['mangabuff.ru'], /^\/manga\/([^/?#]+)/);
   }
 
   /**
@@ -88,11 +87,7 @@ export class MangaBuffAPI extends BasePlatformAPI {
         const data = await this.getMangaData(slug);
         if (data) {
           Logger.debug(this.config.key, 'Match found', slug);
-          // Save auto mapping
-          await this.saveAutoMapping(sourcePlatform, sourceSlug, slug);
-          // Cache result
           await this.cacheResult(slug, data.chapter, data.lastChapterRead);
-
           return this.prepareResponse(slug, data.chapter, data.lastChapterRead);
         }
       }
@@ -101,8 +96,6 @@ export class MangaBuffAPI extends BasePlatformAPI {
     if (signal?.aborted) return null;
 
     Logger.debug(this.config.key, 'No match found');
-    // No results - save negative mapping
-    await this.saveAutoMapping(sourcePlatform, sourceSlug, false);
     return null;
   }
 

@@ -60,11 +60,10 @@ export interface Bookmark {
 export type MappingValue = string | false;
 
 /**
- * Mapping between platforms (slug on one → slug on another, or false if not found)
+ * Mapping between platforms (slug on one → slug on another, or false if not found).
+ * R4.2: narrowed to PlatformKey — symmetric with MangaNode.slugs.
  */
-export interface PlatformMapping {
-  [targetPlatform: string]: MappingValue;
-}
+export type PlatformMapping = Partial<Record<PlatformKey, MappingValue>>;
 
 /**
  * Auto-mapping entry with TTL
@@ -177,7 +176,8 @@ export type PlatformKey =
   | 'senkuro'
   | 'mangabuff'
   | 'readmanga'
-  | 'inkstory';
+  | 'inkstory'
+  | 'comx';
 
 /**
  * Platform config
@@ -189,3 +189,28 @@ export interface PlatformConfig {
   color?: string;
   mirrors?: string[];
 }
+
+// ============================================
+// Manga Node (graph model)
+// ============================================
+
+/**
+ * One manga = one node. Holds all platform slugs + per-platform user overlays.
+ * See plan: sync is handled later via own server, all in local for now.
+ */
+export interface MangaNode {
+  id: string;
+  slugs: Partial<Record<PlatformKey, MappingValue>>;
+  expires: Partial<Record<PlatformKey, number>>;
+  offsets: Partial<Record<PlatformKey, number>>;
+  disabled: Partial<Record<PlatformKey, true>>;
+  source: Partial<Record<PlatformKey, 'manual' | 'auto'>>;
+  updatedAt: number;
+  lastAccessedAt: number;
+}
+
+/** nodeId → MangaNode */
+export type NodesMap = Record<string, MangaNode>;
+
+/** platform → slug → nodeId */
+export type SlugIndex = Partial<Record<PlatformKey, Record<string, string>>>;

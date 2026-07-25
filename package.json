@@ -1,6 +1,6 @@
 {
   "name": "manga-helper",
-  "version": "2026.04.17",
+  "version": "2026.07.25",
   "description": "Cross-platform manga tracker",
   "type": "module",
   "scripts": {
@@ -30,7 +30,9 @@
   "license": "SEE LICENSE IN LICENSE",
   "packageManager": "pnpm@10.13.1",
   "dependencies": {
+    "@types/dompurify": "^3.2.0",
     "@wxt-dev/storage": "^1.2.6",
+    "dompurify": "^3.4.0",
     "extension-ads": "github:FrostBy/extension-ads",
     "extension-ads-config": "github:FrostBy/extension-ads-config",
     "geo-profile": "github:FrostBy/geo-profile",

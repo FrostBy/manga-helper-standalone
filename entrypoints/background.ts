@@ -3,9 +3,10 @@
  * Handles cross-origin fetch requests from content scripts
  */
 import { autoMappings, cache } from '@/src/utils/storage';
+import { migrateLegacyToNodes } from '@/src/utils/migration';
+import { registerCleanupAlarm, runCleanup } from '@/src/utils/storageCleanup';
 
-// Flush expired data every hour
-const FLUSH_INTERVAL = 60 * 60 * 1000;
+const FLUSH_ALARM = 'flushExpired';
 
 export default defineBackground(() => {
   console.log('[Background] Service worker started');
@@ -13,7 +14,18 @@ export default defineBackground(() => {
   // Setup declarativeNetRequest rules for Referer headers
   setupRefererRules();
 
-  // Flush expired cache/mappings on startup and periodically
+  // Legacy → node graph migration (runs once per device)
+  migrateLegacyToNodes().catch((err) =>
+    console.error('[Background] migration failed:', err)
+  );
+
+  // Register daily LRU cleanup alarm
+  registerCleanupAlarm();
+  // Opportunistic cleanup at startup if over 80% quota
+  runCleanup().catch((err) =>
+    console.error('[Background] startup cleanup failed:', err)
+  );
+
   const flushExpired = async () => {
     try {
       await Promise.all([
@@ -29,8 +41,11 @@ export default defineBackground(() => {
   // Run on startup
   flushExpired();
 
-  // Run periodically
-  setInterval(flushExpired, FLUSH_INTERVAL);
+  // R2.3: periodic flush via alarms — setInterval dies with MV3 service worker.
+  browser.alarms.create(FLUSH_ALARM, { periodInMinutes: 60 });
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === FLUSH_ALARM) flushExpired();
+  });
 
   // Listen for messages from content scripts
   browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -75,12 +90,55 @@ export default defineBackground(() => {
 });
 
 /**
+ * R1.5: Allowed destination hosts for cross-origin fetch from content scripts.
+ * Mirrors manifest host_permissions — request to anything else is rejected.
+ * Suffix matching lets subdomains through (e.g. mirror.mangalib.me).
+ */
+const ALLOWED_FETCH_HOST_SUFFIXES = [
+  'mangalib.me',
+  'hentailib.me',
+  'cdnlibs.org',
+  'hentaicdn.org',
+  'imglib.info',
+  'senkuro.com',
+  'senkuro.me',
+  'mangabuff.ru',
+  'readmanga.io',
+  'rmr.rocks',
+  'zazaza.me',
+  'one-way.work',
+  'input.monster',
+  'grouple.co',
+  'inkstory.net',
+  'manga.ovh',
+  'static.inkstory.net',
+  'com-x.life',
+  'github.io',
+];
+
+function isAllowedFetchHost(urlString: string): boolean {
+  try {
+    const u = new URL(urlString);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    const host = u.hostname.toLowerCase();
+    return ALLOWED_FETCH_HOST_SUFFIXES.some(
+      (s) => host === s || host.endsWith('.' + s)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Handle fetch request from content script
  */
 async function handleFetch(
   url: string,
   options?: RequestInit & { withCredentials?: boolean }
 ): Promise<{ data?: unknown; error?: string }> {
+  if (!isAllowedFetchHost(url)) {
+    return { error: 'Host not allowed' };
+  }
   try {
     const { withCredentials, ...fetchOptions } = options || {};
     const response = await fetch(url, {
@@ -116,13 +174,30 @@ async function handleFetch(
 /**
  * Fetch image with custom Referer header and return as base64 data URL
  */
+// F3.2: whitelist of allowed Referer values — content scripts can request only these
+const ALLOWED_REFERERS = new Set<string>([
+  'https://mangalib.me/',
+  'https://hentailib.me/',
+  'https://senkuro.me/',
+  'https://senkuro.com/',
+  'https://mangabuff.ru/',
+  'https://inkstory.net/',
+  'https://a.zazaza.me/',
+]);
+
 async function handleFetchImage(
   url: string,
   referer?: string
 ): Promise<{ data?: string; error?: string }> {
+  if (!isAllowedFetchHost(url)) {
+    return { error: 'Host not allowed' };
+  }
   try {
     const headers: Record<string, string> = {};
     if (referer) {
+      if (!ALLOWED_REFERERS.has(referer)) {
+        return { error: 'Referer not allowed' };
+      }
       headers['Referer'] = referer;
     }
 
@@ -161,7 +236,7 @@ const REFERER_RULES: Array<{
   referer: string;
   resourceTypes?: chrome.declarativeNetRequest.ResourceType[];
 }> = [
-  { urlFilter: '||cover.imglib.info/*', referer: 'https://mangalib.me/', resourceTypes: [chrome.declarativeNetRequest.ResourceType.IMAGE] },
+  { urlFilter: '||cover.imglib.info/*', referer: 'https://mangalib.me/', resourceTypes: [browser.declarativeNetRequest.ResourceType.IMAGE] },
   { urlFilter: '||api.cdnlibs.org/*', referer: 'https://mangalib.me/' },
   { urlFilter: '||hapi.hentaicdn.org/*', referer: 'https://hentailib.me/' },
 ];
@@ -172,11 +247,11 @@ const REFERER_RULES: Array<{
  */
 async function setupRefererRules() {
   try {
-    const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+    const existingRules = await browser.declarativeNetRequest.getDynamicRules();
     const existingIds = existingRules.map((r) => r.id);
 
     if (existingIds.length > 0) {
-      await chrome.declarativeNetRequest.updateDynamicRules({
+      await browser.declarativeNetRequest.updateDynamicRules({
         removeRuleIds: existingIds,
       });
     }
@@ -185,11 +260,11 @@ async function setupRefererRules() {
       id: i + 1,
       priority: 1,
       action: {
-        type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
+        type: browser.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
         requestHeaders: [
           {
             header: 'Referer',
-            operation: chrome.declarativeNetRequest.HeaderOperation.SET,
+            operation: browser.declarativeNetRequest.HeaderOperation.SET,
             value: rule.referer,
           },
         ],
@@ -197,13 +272,13 @@ async function setupRefererRules() {
       condition: {
         urlFilter: rule.urlFilter,
         resourceTypes: rule.resourceTypes ?? [
-          chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
-          chrome.declarativeNetRequest.ResourceType.OTHER,
+          browser.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
+          browser.declarativeNetRequest.ResourceType.OTHER,
         ],
       },
     }));
 
-    await chrome.declarativeNetRequest.updateDynamicRules({ addRules });
+    await browser.declarativeNetRequest.updateDynamicRules({ addRules });
 
     console.log('[Background] Referer rules configured:', addRules.length);
   } catch (error) {

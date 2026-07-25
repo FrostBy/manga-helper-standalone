@@ -31,6 +31,7 @@
 | MangaBuff | mangabuff.ru | ✅ Полная поддержка |
 | ReadManga | readmanga.io | ✅ Полная поддержка |
 | Inkstory | inkstory.net | ✅ Полная поддержка |
+| Com-x | com-x.life | ✅ Полная поддержка |
 
 ## Установка
 

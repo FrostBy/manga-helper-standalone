@@ -1,19 +1,36 @@
 /**
- * ChapterPage for MangaBuff
+ * ChapterPage for com-x.life
  * Auto-advance to next chapter on scroll to bottom
+ *
+ * The reader ships its own `__DATA__` with ready-made `next`/`prev` chapter
+ * URLs, so navigation goes through those instead of clicking a rendered button.
  */
 import { BasePage } from '@/src/pages';
 import { cache } from '@/src/utils/storage';
+import { comxAPI } from '@/src/api';
+
+const BASE_URL = 'https://com-x.life';
+const SCROLL_DEBOUNCE_MS = 100;
+/** Fractional zoom/DPI makes scroll math land a pixel short of the exact bottom. */
+const BOTTOM_SLACK_PX = 2;
 
 export class ChapterPage extends BasePage {
+  private nextChapterUrl: string | null = null;
   private isScrollbarDragging = false;
   private scrollTimeout: ReturnType<typeof setTimeout> | null = null;
 
   protected async initialize(): Promise<void> {
-    await this.invalidateCache();
+    const data = comxAPI.parseReaderHTML(document.documentElement.outerHTML);
+    this.nextChapterUrl = data?.next || null;
+
+    // Reading a chapter changes progress — drop the title's cached counters.
+    await this.invalidateCache(data?.post_link);
   }
 
   async render(): Promise<void> {
+    // Last chapter — nothing to advance to.
+    if (!this.nextChapterUrl) return;
+
     window.addEventListener('scroll', this.handleScroll);
     window.addEventListener('mousedown', this.handleMouseDown);
     window.addEventListener('mouseup', this.handleMouseUp);
@@ -21,25 +38,18 @@ export class ChapterPage extends BasePage {
 
   private handleScroll = (): void => {
     if (this.scrollTimeout) clearTimeout(this.scrollTimeout);
-    this.scrollTimeout = setTimeout(() => this.onScrollEnd(), 100);
+    this.scrollTimeout = setTimeout(() => this.onScrollEnd(), SCROLL_DEBOUNCE_MS);
   };
 
   private onScrollEnd(): void {
-    const scrolledTo = window.scrollY + window.innerHeight;
-    const isReachBottom = document.body.scrollHeight === scrolledTo;
-    if (!isReachBottom) return;
+    if (!this.nextChapterUrl) return;
     if (this.isScrollbarDragging) return;
 
-    const footer = document.querySelector('.reader__footer');
-    if (!footer) return;
+    const scrolledTo = window.scrollY + window.innerHeight;
+    const isReachBottom = scrolledTo >= document.body.scrollHeight - BOTTOM_SLACK_PX;
+    if (!isReachBottom) return;
 
-    const links = footer.querySelectorAll<HTMLAnchorElement>('a.button--primary');
-    for (const link of links) {
-      if (link.textContent?.trim().startsWith('След.')) {
-        link.click();
-        return;
-      }
-    }
+    window.location.href = this.nextChapterUrl;
   }
 
   private handleMouseDown = (event: MouseEvent): void => {
@@ -53,24 +63,28 @@ export class ChapterPage extends BasePage {
     this.isScrollbarDragging = false;
   };
 
-  private async invalidateCache(): Promise<void> {
-    const slug = this.getSlugFromUrl();
-    if (!slug) return;
-    await cache.delete('mangabuff', slug);
-  }
+  /** Reader URL has only a numeric news_id — the slug lives in `post_link`. */
+  private async invalidateCache(postLink?: string): Promise<void> {
+    if (!postLink) return;
 
-  private getSlugFromUrl(): string {
-    const match = window.location.pathname.match(/^\/manga\/([^/]+)/);
-    return match?.[1] ?? '';
+    try {
+      const slug = comxAPI.getSlugFromURL(new URL(postLink, BASE_URL).href);
+      if (slug) await cache.delete('comx', slug);
+    } catch {
+      // Malformed post_link — nothing to invalidate
+    }
   }
 
   async destroy(): Promise<void> {
     window.removeEventListener('scroll', this.handleScroll);
     window.removeEventListener('mousedown', this.handleMouseDown);
     window.removeEventListener('mouseup', this.handleMouseUp);
+
     if (this.scrollTimeout) {
       clearTimeout(this.scrollTimeout);
       this.scrollTimeout = null;
     }
+
+    this.nextChapterUrl = null;
   }
 }

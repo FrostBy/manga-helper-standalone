@@ -1,13 +1,13 @@
 /**
- * ReadManga content script
- * Entry point for readmanga.io platform
+ * com-x.life content script
+ * Entry point for com-x.life platform
  */
 import { render } from 'preact';
-import { ReadMangaRouter } from '@/src/platforms/readmanga.io';
+import { ComXRouter } from '@/src/platforms/com-x.life';
 import { initLogger, Logger } from '@/src/utils';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/styles/shared.scss';
-import '@/src/platforms/readmanga.io/styles.scss';
+import '@/src/platforms/com-x.life/styles.scss';
 
 // Import all platform APIs to register them
 import '@/src/platforms/mangalib.me/api';
@@ -18,12 +18,12 @@ import '@/src/platforms/inkstory.net/api';
 import '@/src/platforms/com-x.life/api';
 
 export default defineContentScript({
-  matches: ['*://*.zazaza.me/*', '*://*.readmanga.io/*'],
+  matches: ['*://*.com-x.life/*'],
   runAt: 'document_end',
 
   async main() {
     await initLogger();
-    Logger.info('ReadManga', 'Content script loaded');
+    Logger.info('ComX', 'Content script loaded');
 
     // Mount onboarding tooltip
     const onboardingContainer = document.createElement('div');
@@ -31,7 +31,7 @@ export default defineContentScript({
     document.body.appendChild(onboardingContainer);
     render(<OnboardingTooltip />, onboardingContainer);
 
-    const router = new ReadMangaRouter();
+    const router = new ComXRouter();
     router.setupNavigationListener();
     router.init();
   },

@@ -112,6 +112,20 @@ body {
     --accent: #2b7fff;
     --accent-hover: #1a6be6;
   }
+
+  // Com-x theme — mirrors the site's own palette (--bg / --bg-lighter-2 / --accent)
+  &.theme-comx {
+    --bg-primary: #121212;
+    --bg-secondary: #171717;
+    --bg-tertiary: #212121;
+    --bg-hover: #333;
+    --border-color: rgba(255, 255, 255, 0.06);
+    --input-border: #333;
+    --text-primary: #f2f2f2;
+    --text-secondary: rgba(242, 242, 242, 0.8);
+    --accent: #ffa332;
+    --accent-hover: #f39b2e;
+  }
 }
 
 .search-box {

@@ -9,6 +9,7 @@ import { senkuroAPI, SenkuroAPI } from './senkuro';
 import { mangabuffAPI, MangaBuffAPI } from './mangabuff';
 import { readmangaAPI, ReadMangaAPI } from './readmanga';
 import { inkstoryAPI, InkstoryAPI } from './inkstory';
+import { comxAPI, ComXAPI } from './comx';
 import type { PlatformKey } from '@/src/types';
 
 // Export all API classes
@@ -18,6 +19,7 @@ export { SenkuroAPI, senkuroAPI } from './senkuro';
 export { MangaBuffAPI, mangabuffAPI } from './mangabuff';
 export { ReadMangaAPI, readmangaAPI } from './readmanga';
 export { InkstoryAPI, inkstoryAPI } from './inkstory';
+export { ComXAPI, comxAPI } from './comx';
 
 /**
  * Map of platform keys to API instances
@@ -28,6 +30,7 @@ const apiRegistry: Record<PlatformKey, BasePlatformAPI> = {
   mangabuff: mangabuffAPI,
   readmanga: readmangaAPI,
   inkstory: inkstoryAPI,
+  comx: comxAPI,
 };
 
 /**

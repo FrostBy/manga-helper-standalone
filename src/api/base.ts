@@ -4,7 +4,7 @@
  */
 
 import { bgFetch } from '@/src/utils/fetch';
-import { tokens, cache, autoMappings } from '@/src/utils/storage';
+import { tokens, cache } from '@/src/utils/storage';
 import { Logger } from '@/src/utils/logger';
 import type { PlatformKey, PlatformConfig, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
@@ -60,6 +60,12 @@ export abstract class BasePlatformAPI {
    * Returns array of {title, slug, image?} results
    */
   abstract searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }>>;
+
+  /**
+   * F4.1: Optional convenience method — fetch + cache chapters/bookmark in one call.
+   * Implemented by most platforms but not required by the contract.
+   */
+  getData?(slug: string): Promise<unknown>;
 
   /** Token storage key (defaults to config.key, mirrors can override) */
   protected tokenKey = '';
@@ -176,17 +182,6 @@ export abstract class BasePlatformAPI {
    */
   protected async getCached(slug: string) {
     return cache.get(this.config.key, slug);
-  }
-
-  /**
-   * Save auto-discovered mapping
-   */
-  protected async saveAutoMapping(
-    sourcePlatform: PlatformKey,
-    sourceSlug: string,
-    targetSlug: string | false
-  ): Promise<void> {
-    await autoMappings.set(sourcePlatform, sourceSlug, this.config.key, targetSlug);
   }
 
   /**

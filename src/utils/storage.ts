@@ -35,18 +35,7 @@ const KEYS = {
 // Default TTL: 1 hour
 const DEFAULT_TTL = 60 * 60 * 1000;
 
-/**
- * Per-key write lock to serialize read-modify-write storage operations.
- * Prevents concurrent writes from overwriting each other.
- */
-function createLock() {
-  let chain: Promise<void> = Promise.resolve();
-  return <T>(fn: () => Promise<T>): Promise<T> => {
-    const result = chain.catch(() => {}).then(fn);
-    chain = result.then(() => {}, () => {});
-    return result;
-  };
-}
+import { createLock } from './lock';
 
 const autoLock = createLock();
 const cacheLock = createLock();
@@ -67,7 +56,7 @@ export const manualMappings = {
     targetPlatform: string
   ): Promise<MappingValue | null> {
     const all = await this.getAll();
-    const value = all[platform]?.[slug]?.[targetPlatform];
+    const value = all[platform]?.[slug]?.[targetPlatform as PlatformKey];
     if (typeof value === 'string') return value;
     if (value === false) return false;
     return null;
@@ -84,7 +73,7 @@ export const manualMappings = {
 
       if (!all[platform]) all[platform] = {};
       if (!all[platform][slug]) all[platform][slug] = {};
-      all[platform][slug][targetPlatform] = targetSlug;
+      all[platform][slug][targetPlatform as PlatformKey] = targetSlug;
 
       await storage.setItem(KEYS.MANUAL_MAPPINGS, all);
     } catch (error) {
@@ -100,8 +89,8 @@ export const manualMappings = {
   ): Promise<void> {
     const all = await this.getAll();
 
-    if (all[platform]?.[slug]?.[targetPlatform] !== undefined) {
-      delete all[platform][slug][targetPlatform];
+    if (all[platform]?.[slug]?.[targetPlatform as PlatformKey] !== undefined) {
+      delete all[platform][slug][targetPlatform as PlatformKey];
 
       // Clean up empty objects
       if (Object.keys(all[platform][slug]).length === 0) {
@@ -214,7 +203,7 @@ export const autoMappings = {
     const result: PlatformMapping = {};
     for (const [targetPlatform, entry] of Object.entries(entries)) {
       if (entry.expires > now) {
-        result[targetPlatform] = entry.value;
+        result[targetPlatform as PlatformKey] = entry.value;
       }
     }
     return result;
@@ -324,6 +313,26 @@ export const cache = {
     });
   },
 
+  /**
+   * R2.2: Bulk delete — used by storage cleanup. One read, one write,
+   * instead of N sequential writes under cacheLock.
+   */
+  deleteMany(entries: ReadonlyArray<{ target: string; slug: string }>): Promise<void> {
+    if (entries.length === 0) return Promise.resolve();
+    return cacheLock(async () => {
+      const all = await this.getAll();
+      let changed = false;
+      for (const { target, slug } of entries) {
+        if (all[target]?.[slug]) {
+          delete all[target][slug];
+          changed = true;
+          if (Object.keys(all[target]).length === 0) delete all[target];
+        }
+      }
+      if (changed) await storage.setItem(KEYS.CACHE, all);
+    });
+  },
+
   flushExpired(): Promise<void> {
     return cacheLock(async () => {
       const all = await this.getAll();
@@ -354,28 +363,23 @@ export const cache = {
 };
 
 /**
- * Get target slug with priority: manual > auto > null
- * Returns { slug, source } where source indicates where it came from
+ * Get target slug from the node graph.
+ *
+ * R5.3: legacy sync:manual / local:auto fallbacks removed — migrateLegacyToNodes
+ * guarantees all reachable legacy data is absorbed on first launch. Keeping the
+ * fallback here doubled I/O on every cache miss.
  */
 export async function getTargetSlug(
   fromPlatform: string,
   slug: string,
   toPlatform: string
 ): Promise<{ slug: MappingValue | null; source: 'manual' | 'auto' | 'none' }> {
-  // 1. Manual mappings (highest priority)
-  const manual = await manualMappings.get(fromPlatform, slug, toPlatform);
-  if (manual !== null) {
-    return { slug: manual, source: 'manual' };
-  }
-
-  // 2. Auto-discovered mappings (can be string or false)
-  const auto = await autoMappings.get(fromPlatform, slug, toPlatform);
-  if (auto !== null) {
-    return { slug: auto, source: 'auto' };
-  }
-
-  // 3. Not found - need to search
-  return { slug: null, source: 'none' };
+  const { resolveTarget } = await import('./nodeStorage');
+  return resolveTarget(
+    fromPlatform as PlatformKey,
+    slug,
+    toPlatform as PlatformKey
+  );
 }
 
 /**

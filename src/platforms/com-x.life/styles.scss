@@ -1,0 +1,169 @@
+/* com-x.life platform styles */
+/*
+ * The dropdown reuses the site's own classes (.page__favs / .page__btn-sec /
+ * .page__fav-list), so its box, colours and light/dark themes come from com-x
+ * itself. Only what the site's own list lacks is defined here: our row layout
+ * (link + refresh + edit) and the caret.
+ */
+
+.comx .mh-comx {
+  position: relative;
+  width: 100%;
+}
+
+.comx .mh-comx-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Caret mirrors the open state */
+.comx .mh-comx-caret {
+  font-size: 11px;
+  color: var(--tt-darker-2);
+  transition: transform 0.15s ease;
+
+  &.is-open {
+    transform: rotate(180deg);
+    color: var(--accent);
+  }
+}
+
+/* Active row highlight matches the site's own list (li.is-active) */
+.comx .mh-comx-item .refresh-link:hover,
+.comx .mh-comx-item .edit-link:hover {
+  color: var(--accent);
+}
+
+/* The site's list sits at top:0 — ours must drop below the button */
+.comx .mh-comx-list {
+  top: 100%;
+  margin-top: 4px;
+}
+
+/* Their li is a plain text row; ours holds a link plus two actions */
+.comx .mh-comx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.comx .mh-comx-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.comx .mh-comx-item .platform-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comx .mh-comx-item .platform-stats {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.comx .mh-comx-item {
+  .refresh-link,
+  .edit-link {
+    cursor: pointer;
+    opacity: 0.6;
+    flex-shrink: 0;
+    font-size: 12px;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+
+/* Absolute chapter counter next to the chapters heading */
+.comx .chapters-all {
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+/*
+ * Edit modal — shared.scss ships the layout but no colours, so it renders
+ * transparent here. Painted with the site's own CSS variables, which makes it
+ * follow com-x's light theme (.lt-is-active) for free. --accent (#ffa332) is
+ * the site's primary orange.
+ */
+.comx #edit-link-modal {
+  .modal__content {
+    background: var(--bg-lighter-2);
+    border: 1px solid var(--bdc-lighter);
+    border-radius: 4px;
+    box-shadow: rgba(0, 0, 0, 0.6) 0 8px 20px;
+  }
+
+  .modal__header {
+    border-bottom: 1px solid var(--bdc-lighter);
+  }
+
+  .modal__title {
+    color: var(--tt);
+  }
+
+  .modal__close {
+    color: var(--tt-darker-2);
+
+    &:hover {
+      color: var(--tt);
+    }
+  }
+
+  .form__label,
+  .form__checkbox,
+  .form__field label {
+    color: var(--tt);
+  }
+
+  .form__input {
+    background: var(--bg);
+    border: 1px solid var(--bdc-lighter);
+    border-radius: 4px;
+    color: var(--tt);
+
+    &:focus {
+      border-color: var(--accent);
+      outline: none;
+    }
+
+    &--error {
+      border-color: var(--accent-2);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+
+  .btn.button_save {
+    background: var(--accent);
+    color: var(--ui-text-color-on-accent);
+
+    &:hover {
+      background: var(--accent-darker);
+    }
+  }
+
+  .btn.button_clean {
+    background: var(--ui-bg);
+    color: var(--tt);
+
+    &:hover {
+      background: var(--accent-2);
+      color: var(--ui-text-color-on-accent);
+    }
+  }
+}
