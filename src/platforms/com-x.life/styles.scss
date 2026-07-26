@@ -37,10 +37,52 @@
   color: var(--accent);
 }
 
-/* The site's list sits at top:0 — ours must drop below the button */
+/*
+ * Mirrors .page__fav-list rather than reusing it — see ComXPlatformButton for
+ * why. Values are the site's own; theirs anchors at top:0, ours drops below
+ * the button.
+ */
 .comx .mh-comx-list {
+  display: none;
+  position: absolute;
   top: 100%;
-  margin-top: 4px;
+  left: 0;
+  margin: 4px 0 0;
+  padding: 8px 0;
+  width: 100%;
+  list-style: none;
+  line-height: 38px;
+  background-color: var(--bg-lighter-2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  box-shadow: rgba(0, 0, 0, 0.6) 0 8px 20px;
+  z-index: 10;
+
+  &.is-open {
+    display: block;
+  }
+
+  li {
+    cursor: pointer;
+    padding: 0 14px;
+    font-size: 12px;
+
+    &:hover {
+      background-color: var(--bg);
+    }
+  }
+}
+
+/* Light theme, as the site switches it */
+.lt-is-active .comx .mh-comx-list,
+.comx.lt-is-active .mh-comx-list {
+  background-color: #fff;
+  border-color: #d0d0d0;
+  box-shadow: rgba(0, 0, 0, 0.15) 0 8px 20px;
+
+  li:hover {
+    background-color: #f5f5f5;
+  }
 }
 
 /* Their li is a plain text row; ours holds a link plus two actions */

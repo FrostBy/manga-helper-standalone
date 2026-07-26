@@ -4,10 +4,14 @@
  *
  * The site ships no Bootstrap JS — only jQuery — so `data-toggle="dropdown"`
  * does nothing here and BootstrapPlatformButton would never open. Open/close is
- * therefore handled locally, mirroring the site's own `.d-none` toggle.
+ * therefore handled locally.
  *
- * Site classes are reused on purpose: styling then comes from com-x itself and
- * follows its light/dark themes for free.
+ * The list deliberately does NOT reuse the site's own `.page__fav-list` class:
+ * com-x toggles its collection list through jQuery, which selects that class
+ * globally and writes an inline `display`. Sharing the class meant our dropdown
+ * opened together with theirs, and the inline style then outranked our own
+ * class toggle, wedging the list shut until a reload. Styling is mirrored in
+ * styles.scss instead, on our own classes and the site's CSS variables.
  */
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { t } from '@/src/utils';
@@ -44,7 +48,7 @@ export function ComXPlatformButton({ onRefresh }: Props) {
   }, [open]);
 
   return (
-    <div ref={rootRef} class="page__favs mh-comx">
+    <div ref={rootRef} class="mh-comx">
       <button
         type="button"
         class="page__btn-sec btn mh-comx-btn"
@@ -55,7 +59,7 @@ export function ComXPlatformButton({ onRefresh }: Props) {
         <span class={`fal fa-angle-down mh-comx-caret${open ? ' is-open' : ''}`} />
       </button>
 
-      <ul class={`page__fav-list mh-comx-list${open ? '' : ' d-none'}`}>
+      <ul class={`mh-comx-list${open ? ' is-open' : ''}`}>
         {items?.map((item) => (
           <li key={item.key} data-platform-key={item.key} class="mh-comx-item">
             <a
