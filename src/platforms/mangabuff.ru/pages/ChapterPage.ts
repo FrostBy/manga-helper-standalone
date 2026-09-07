@@ -3,33 +3,23 @@
  * Auto-advance to next chapter on scroll to bottom
  */
 import { BasePage } from '@/src/pages';
+import { createScrollAdvance } from '@/src/utils';
 import { cache } from '@/src/utils/storage';
 
 export class ChapterPage extends BasePage {
-  private isScrollbarDragging = false;
-  private scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+  private advance = createScrollAdvance({
+    onReachBottom: () => this.clickNextChapter(),
+  });
 
   protected async initialize(): Promise<void> {
     await this.invalidateCache();
   }
 
   async render(): Promise<void> {
-    window.addEventListener('scroll', this.handleScroll);
-    window.addEventListener('mousedown', this.handleMouseDown);
-    window.addEventListener('mouseup', this.handleMouseUp);
+    this.advance.start();
   }
 
-  private handleScroll = (): void => {
-    if (this.scrollTimeout) clearTimeout(this.scrollTimeout);
-    this.scrollTimeout = setTimeout(() => this.onScrollEnd(), 100);
-  };
-
-  private onScrollEnd(): void {
-    const scrolledTo = window.scrollY + window.innerHeight;
-    const isReachBottom = document.body.scrollHeight === scrolledTo;
-    if (!isReachBottom) return;
-    if (this.isScrollbarDragging) return;
-
+  private clickNextChapter(): void {
     const footer = document.querySelector('.reader__footer');
     if (!footer) return;
 
@@ -41,17 +31,6 @@ export class ChapterPage extends BasePage {
       }
     }
   }
-
-  private handleMouseDown = (event: MouseEvent): void => {
-    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-    if (scrollbarWidth > 0 && event.clientX > document.documentElement.clientWidth) {
-      this.isScrollbarDragging = true;
-    }
-  };
-
-  private handleMouseUp = (): void => {
-    this.isScrollbarDragging = false;
-  };
 
   private async invalidateCache(): Promise<void> {
     const slug = this.getSlugFromUrl();
@@ -65,12 +44,6 @@ export class ChapterPage extends BasePage {
   }
 
   async destroy(): Promise<void> {
-    window.removeEventListener('scroll', this.handleScroll);
-    window.removeEventListener('mousedown', this.handleMouseDown);
-    window.removeEventListener('mouseup', this.handleMouseUp);
-    if (this.scrollTimeout) {
-      clearTimeout(this.scrollTimeout);
-      this.scrollTimeout = null;
-    }
+    this.advance.stop();
   }
 }

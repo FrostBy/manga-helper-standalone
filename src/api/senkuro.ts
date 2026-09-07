@@ -8,7 +8,22 @@ import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
-const GRAPHQL_URL = 'https://api.senkuro.me/graphql';
+const DEFAULT_GRAPHQL_URL = 'https://api.senkuro.me/graphql';
+const DEFAULT_DOMAIN_URL = 'https://senkuro.me';
+
+interface SenkuroMirrorConfig {
+  graphqlUrl: string;
+  domainUrl: string;
+  tokenKey: string;
+}
+
+export const SENKURO_MIRROR_CONFIGS: Record<string, SenkuroMirrorConfig> = {
+  'senkognito.com': {
+    graphqlUrl: 'https://api.senkognito.com/graphql',
+    domainUrl: 'https://ne.senkognito.com',
+    tokenKey: 'senkognito',
+  },
+};
 
 // Persisted query hashes
 const QUERY_HASHES = {
@@ -92,12 +107,29 @@ export class SenkuroAPI extends BasePlatformAPI {
     title: 'Senkuro',
   };
 
+  private graphqlUrl = DEFAULT_GRAPHQL_URL;
+  private domainUrl = DEFAULT_DOMAIN_URL;
+
+  /** Apply mirror config by domain */
+  applyMirror(domain: string): void {
+    const mirror = SENKURO_MIRROR_CONFIGS[domain];
+    if (mirror) {
+      this.graphqlUrl = mirror.graphqlUrl;
+      this.domainUrl = mirror.domainUrl;
+      this.tokenKey = mirror.tokenKey;
+    }
+  }
+
   link(slug: string): string {
-    return `https://senkuro.me/manga/${slug}/chapters`;
+    return `${this.domainUrl}/manga/${slug}/chapters`;
   }
 
   getSlugFromURL(url: string): string | null {
-    return parseSlugFromUrl(url, ['senkuro.me', 'senkuro.com'], /^\/manga\/([^/?#]+)/);
+    return parseSlugFromUrl(
+      url,
+      ['senkuro.me', 'senkuro.com', 'senkognito.com'],
+      /^\/manga\/([^/?#]+)/
+    );
   }
 
   /**
@@ -198,7 +230,7 @@ export class SenkuroAPI extends BasePlatformAPI {
       },
     };
 
-    const response = await this.fetch<SenkuroSearchResponse>(GRAPHQL_URL, {
+    const response = await this.fetch<SenkuroSearchResponse>(this.graphqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -260,7 +292,7 @@ export class SenkuroAPI extends BasePlatformAPI {
       },
     };
 
-    const response = await this.fetch<SenkuroMangaResponse>(GRAPHQL_URL, {
+    const response = await this.fetch<SenkuroMangaResponse>(this.graphqlUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -318,7 +350,7 @@ export class SenkuroAPI extends BasePlatformAPI {
       },
     };
 
-    const response = await this.fetch<SenkuroMangaResponse>(GRAPHQL_URL, {
+    const response = await this.fetch<SenkuroMangaResponse>(this.graphqlUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -375,7 +407,7 @@ export class SenkuroAPI extends BasePlatformAPI {
       },
     };
 
-    const response = await this.fetch<SenkuroSearchResponse>(GRAPHQL_URL, {
+    const response = await this.fetch<SenkuroSearchResponse>(this.graphqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

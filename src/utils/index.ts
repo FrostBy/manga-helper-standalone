@@ -1,6 +1,7 @@
 export { bgFetch } from './fetch';
 export { Logger, LogLevel, initLogger, setLogLevel } from './logger';
 export { waitForElement, waitForElements } from './dom';
+export { createScrollAdvance } from './scrollAdvance';
 export {
   manualMappings,
   autoMappings,

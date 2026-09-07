@@ -17,7 +17,7 @@ export default defineConfig({
     name: '__MSG_extName__',
     description: '__MSG_extDescription__',
     default_locale: 'en',
-    version: '2026.07.26',
+    version: '2026.09.07',
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -35,6 +35,8 @@ export default defineConfig({
       '*://api.senkuro.com/*',
       '*://*.senkuro.me/*',
       '*://api.senkuro.me/*',
+      '*://*.senkognito.com/*',
+      '*://api.senkognito.com/*',
       '*://*.mangabuff.ru/*',
       '*://*.readmanga.io/*',
       '*://api.rmr.rocks/*',

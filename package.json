@@ -1,6 +1,6 @@
 {
   "name": "manga-helper",
-  "version": "2026.07.26",
+  "version": "2026.09.07",
   "description": "Cross-platform manga tracker",
   "type": "module",
   "scripts": {

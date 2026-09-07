@@ -102,6 +102,7 @@ const ALLOWED_FETCH_HOST_SUFFIXES = [
   'imglib.info',
   'senkuro.com',
   'senkuro.me',
+  'senkognito.com',
   'mangabuff.ru',
   'readmanga.io',
   'rmr.rocks',

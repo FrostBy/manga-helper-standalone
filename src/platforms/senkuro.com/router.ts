@@ -2,6 +2,9 @@ import { BaseRouter } from '@/src/router';
 import type { RoutesConfig } from '@/src/router';
 import type { PlatformKey } from '@/src/types';
 import { tokens } from '@/src/utils/storage';
+import { resolveActiveDomain } from '@/src/utils/mirrors';
+import { SENKURO_MIRROR_CONFIGS } from '@/src/api/senkuro';
+import { config } from './config';
 import { MangaPage, ChapterPage } from './pages';
 
 export class SenkuroRouter extends BaseRouter {
@@ -23,9 +26,12 @@ export class SenkuroRouter extends BaseRouter {
     document.body.classList.add('senkuro');
 
     // Get auth token from cookie
+    const activeDomain = resolveActiveDomain(config);
+    const tokenKey = SENKURO_MIRROR_CONFIGS[activeDomain]?.tokenKey ?? this.platformKey;
+
     const token = this.getCookie('access_token');
     if (token) {
-      await tokens.set(this.platformKey, token);
+      await tokens.set(tokenKey, token);
     }
   }
 

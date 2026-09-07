@@ -4,6 +4,9 @@
  */
 import { render } from 'preact';
 import { SenkuroRouter } from '@/src/platforms/senkuro.com';
+import { config as senkuroConfig } from '@/src/platforms/senkuro.com/config';
+import { senkuroAPI } from '@/src/api';
+import { resolveActiveDomain } from '@/src/utils/mirrors';
 import { initLogger, Logger } from '@/src/utils';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/platforms/senkuro.com/styles.scss';
@@ -18,11 +21,18 @@ import '@/src/platforms/inkstory.net/api';
 import '@/src/platforms/com-x.life/api';
 
 export default defineContentScript({
-  matches: ['*://*.senkuro.com/*', '*://*.senkuro.me/*'],
+  matches: ['*://*.senkuro.com/*', '*://*.senkuro.me/*', '*://*.senkognito.com/*'],
   runAt: 'document_end',
 
   async main() {
     await initLogger();
+
+    // Apply mirror config if we're on a mirror domain
+    const activeDomain = resolveActiveDomain(senkuroConfig);
+    if (activeDomain !== senkuroConfig.domain) {
+      senkuroAPI.applyMirror(activeDomain);
+    }
+
     Logger.info('Senkuro', 'Content script loaded');
 
     // Mount onboarding tooltip
