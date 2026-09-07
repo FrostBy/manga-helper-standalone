@@ -1,7 +1,9 @@
 /**
  * Platform button with native Bootstrap dropdown.
  * For sites that have Bootstrap loaded (e.g. ReadManga).
- * Uses data-toggle="dropdown" — Bootstrap JS handles open/close/positioning.
+ * Both toggle attributes are needed: Bootstrap 5 reads data-bs-toggle and
+ * ignores the v4 spelling, so dropping either one leaves the button dead on
+ * sites running that version.
  */
 import { t } from '@/src/utils';
 import type { PlatformKey } from '@/src/types';
@@ -23,6 +25,7 @@ export function BootstrapPlatformButton({ children, className = '', onRefresh }:
         class={className}
         type="button"
         data-toggle="dropdown"
+        data-bs-toggle="dropdown"
         aria-expanded="false"
       >
         {children}
