@@ -14,6 +14,8 @@
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
+import type { FetchResult } from '@/src/utils/fetch';
+import { titlesMatch } from '@/src/utils/manga';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://com-x.life';
@@ -99,6 +101,12 @@ function sliceBalancedJson(src: string, start: number): string | null {
   return null;
 }
 
+/** The challenge page has no `__DATA__` but carries its `/_v` verify call. */
+function isChallenged(result: FetchResult<string>): boolean {
+  const html = result.ok ? result.data : result.body;
+  return typeof html === 'string' && !html.includes('__DATA__') && /["']\/_v["']|targetUrl/.test(html);
+}
+
 /** Normalise `readed` (list of ids | {id: bool} map) to a list of read ids. */
 function normalizeReaded(raw: ComXData['readed']): number[] {
   if (!raw) return [];
@@ -141,7 +149,7 @@ export class ComXAPI extends BasePlatformAPI {
     for (const title of titles) {
       if (signal?.aborted) return null;
 
-      const slug = await this.searchByTitle(title);
+      const slug = await this.searchByTitle(title, titles);
       Logger.debug(this.config.key, 'Search result for title', { title, found: slug });
 
       if (slug) {
@@ -164,10 +172,10 @@ export class ComXAPI extends BasePlatformAPI {
 
   /**
    * DLE search — returns HTML, no JSON endpoint exists.
-   * Accepts a hit only when a title matches exactly, since DLE returns loose
+   * Accepts a hit only when one of its names matches ours, since DLE returns loose
    * full-text matches (searching one title yields ~30 unrelated results).
    */
-  private async searchByTitle(title: string): Promise<string | null> {
+  private async searchByTitle(title: string, allTitles: string[]): Promise<string | null> {
     const html = await this.fetchPage(`${BASE_URL}/index.php?do=search`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -183,7 +191,7 @@ export class ComXAPI extends BasePlatformAPI {
     if (!html) return null;
 
     for (const { slug, names } of this.parseSearchResults(html)) {
-      if (names.some((name) => name === title)) return slug;
+      if (titlesMatch(names, allTitles)) return slug;
     }
 
     return null;
@@ -220,25 +228,34 @@ export class ComXAPI extends BasePlatformAPI {
   }
 
   /**
-   * Fetch a page with credentials and reject anti-bot challenge responses.
-   * The challenge needs JS (fingerprint + POST /_v) which we cannot run here,
-   * so a challenged response is a hard failure — better a logged null than a
-   * silent "0 chapters".
+   * Fetch a page with credentials. The anti-bot cookie is IP-bound and expires
+   * (a VPN switch is enough); the challenge then comes back as a 404 page that
+   * only a real visit passes — so the background makes one, then we retry once.
    */
   private async fetchPage(url: string, options?: RequestInit): Promise<string | null> {
-    const html = await this.fetch<string>(url, {
-      ...options,
-      withCredentials: true,
-    } as RequestInit);
+    const init = { ...options, withCredentials: true } as RequestInit;
+    let result = await this.request<string>(url, init);
 
-    if (!html || typeof html !== 'string') return null;
+    if (isChallenged(result) && (await this.refreshAccess())) {
+      result = await this.request<string>(url, init);
+    }
 
-    if (!html.includes('__DATA__') && /["']\/_v["']|targetUrl/.test(html)) {
-      Logger.warn(this.config.key, 'Anti-bot challenge served — open com-x.life to refresh access', url);
+    if (isChallenged(result)) {
+      Logger.warn(this.config.key, 'Anti-bot challenge still served — open com-x.life', url);
+      if (result.ok) this.failedFetches++;
       return null;
     }
 
-    return html;
+    return result.ok && typeof result.data === 'string' ? result.data : null;
+  }
+
+  private async refreshAccess(): Promise<boolean> {
+    try {
+      const response = await browser.runtime.sendMessage({ type: 'refreshSiteAccess', url: `${BASE_URL}/` });
+      return response?.ok === true;
+    } catch {
+      return false;
+    }
   }
 
   /** Read the reader page's `__DATA__` (next/prev links + post_link). */
@@ -281,11 +298,16 @@ export class ComXAPI extends BasePlatformAPI {
     if (!html) return null;
 
     const data = this.parseData(html);
-    const chapters = data?.chapters;
-    if (!chapters?.length) return null;
+    if (!data) {
+      // A page without __DATA__ means the layout or access changed, not that
+      // the title is gone — must not end up cached as "not found".
+      this.failedFetches++;
+      return null;
+    }
+    const chapters = data.chapters ?? [];
 
     const posiOf = (chapter: ComXChapter) => Number(chapter.posi) || 0;
-    const chapter = Math.max(...chapters.map(posiOf));
+    const chapter = Math.max(0, ...chapters.map(posiOf));
 
     // Progress lives in two places and neither is trustworthy on its own:
     // marking chapters read is a manual action here (users tick a couple at

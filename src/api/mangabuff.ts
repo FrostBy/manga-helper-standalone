@@ -7,6 +7,7 @@ import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import { userProgress } from '@/src/utils/storage';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
+import { titlesMatch } from '@/src/utils/manga';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://mangabuff.ru';
@@ -112,7 +113,7 @@ export class MangaBuffAPI extends BasePlatformAPI {
     }
 
     // Find match against any of our titles (covers alt name scenarios)
-    const entity = response.find((e) => allTitles.includes(e.name));
+    const entity = response.find((e) => titlesMatch([e.name], allTitles));
     return entity?.slug ?? null;
   }
 
@@ -138,6 +139,7 @@ export class MangaBuffAPI extends BasePlatformAPI {
       return { chapter, lastChapterRead };
     } catch (error) {
       Logger.error(this.config.key, 'Failed to parse manga page', error);
+      this.failedFetches++;
       return null;
     }
   }

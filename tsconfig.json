@@ -22,5 +22,5 @@
     "wxt.config.ts",
     ".wxt/wxt.d.ts"
   ],
-  "exclude": ["node_modules", ".output"]
+  "exclude": ["node_modules", ".output", "**/*.check.ts"]
 }

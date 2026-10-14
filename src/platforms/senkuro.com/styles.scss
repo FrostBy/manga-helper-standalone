@@ -166,27 +166,6 @@
   opacity: 0.8;
 }
 
-/* Inline loader */
-.senkuro .inline-loader,
-.tippy-box[data-theme~='senkuro'] .inline-loader {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-
-  .loader {
-    width: 100%;
-    height: 100%;
-    animation: rotate 1.5s linear infinite;
-
-    .path {
-      stroke: currentColor;
-      stroke-dasharray: 1, 200;
-      stroke-dashoffset: 0;
-      animation: dash 1.5s ease-in-out infinite;
-    }
-  }
-}
-
 /* Modal theme for Senkuro */
 .senkuro #edit-link-modal {
   &.is-open {
@@ -266,3 +245,18 @@
   }
 }
 
+
+// The site draws these rings 18px wide and centres them on the button;
+// pinned to our 1em loader box instead.
+.mh-site-loader > .button__loading {
+  position: relative;
+
+  &::before,
+  &::after {
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    left: 0;
+    top: 0;
+  }
+}

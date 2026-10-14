@@ -1,11 +1,19 @@
 .inkstory-dropdown {
-  // Menu items
+  svg {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+  }
+
+  // Measured off the site's own dropdown-menu-item
   .menu-item {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 4px;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 20px;
     cursor: pointer;
     transition: background-color 0.15s;
 
@@ -31,6 +39,8 @@
   .platform-stats {
     margin-left: auto;
     font-size: 12px;
+    // The inherited 20px plus the <small>'s baseline shift pushes the row past the native 28px
+    line-height: 16px;
     opacity: 0.7;
 
     &.has-more {
@@ -44,7 +54,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 4px;
+    // 2px keeps the row at the native 28px height
+    padding: 2px;
     border-radius: 4px;
     opacity: 0.6;
     transition: opacity 0.15s, background-color 0.15s;

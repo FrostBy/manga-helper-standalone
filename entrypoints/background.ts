@@ -5,10 +5,14 @@
 import { autoMappings, cache } from '@/src/utils/storage';
 import { migrateLegacyToNodes } from '@/src/utils/migration';
 import { registerCleanupAlarm, runCleanup } from '@/src/utils/storageCleanup';
+import { hostStorageLocks } from '@/src/utils/lock';
 
 const FLUSH_ALARM = 'flushExpired';
+const FETCH_TIMEOUT_MS = 10000;
+const MAX_ERROR_BODY = 20000;
 
 export default defineBackground(() => {
+  hostStorageLocks();
   console.log('[Background] Service worker started');
 
   // Setup declarativeNetRequest rules for Referer headers
@@ -85,9 +89,78 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (message.type === 'refreshSiteAccess') {
+      if (typeof message.url !== 'string') {
+        sendResponse({ ok: false });
+        return true;
+      }
+      refreshSiteAccess(message.url)
+        .then((ok) => sendResponse({ ok }))
+        .catch(() => sendResponse({ ok: false }));
+      return true;
+    }
+
     return false;
   });
 });
+
+/**
+ * Anti-bot cookies (com-x) are IP-bound and only a real page visit renews them.
+ * Lives here, not in pages: one visit per host at a time that every waiting tab
+ * shares — ten open titles must not spawn ten tabs — and none within the
+ * cooldown, so a site that keeps challenging can't loop.
+ */
+const ACCESS_REFRESH_HOSTS = ['com-x.life'];
+const ACCESS_COOLDOWN_MS = 10 * 60 * 1000;
+const ACCESS_VISIT_TIMEOUT_MS = 15000;
+const accessVisits = new Map<string, Promise<boolean>>();
+const lastAccessVisit = new Map<string, number>();
+
+function refreshSiteAccess(url: string): Promise<boolean> {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return Promise.resolve(false);
+  }
+  if (!ACCESS_REFRESH_HOSTS.includes(host)) return Promise.resolve(false);
+
+  const pending = accessVisits.get(host);
+  if (pending) return pending;
+  if (Date.now() - (lastAccessVisit.get(host) ?? 0) < ACCESS_COOLDOWN_MS) return Promise.resolve(false);
+
+  lastAccessVisit.set(host, Date.now());
+  const visit = visitInBackgroundTab(url).finally(() => accessVisits.delete(host));
+  accessVisits.set(host, visit);
+  return visit;
+}
+
+async function visitInBackgroundTab(url: string): Promise<boolean> {
+  const tab = await browser.tabs.create({ url, active: false });
+  const tabId = tab.id;
+  if (tabId === undefined) return false;
+
+  try {
+    return await new Promise<boolean>((resolve) => {
+      const finish = (ok: boolean) => {
+        clearTimeout(timer);
+        browser.tabs.onUpdated.removeListener(onUpdated);
+        resolve(ok);
+      };
+      // The challenge runs at /_c and redirects back once passed — a finished
+      // load anywhere else means the cookie is in place.
+      const onUpdated = (id: number, info: { status?: string }, updated: { url?: string }) => {
+        if (id !== tabId || info.status !== 'complete' || !updated.url) return;
+        if (new URL(updated.url).pathname.startsWith('/_c')) return;
+        finish(true);
+      };
+      const timer = setTimeout(() => finish(false), ACCESS_VISIT_TIMEOUT_MS);
+      browser.tabs.onUpdated.addListener(onUpdated);
+    });
+  } finally {
+    browser.tabs.remove(tabId).catch(() => {});
+  }
+}
 
 /**
  * R1.5: Allowed destination hosts for cross-origin fetch from content scripts.
@@ -136,7 +209,7 @@ function isAllowedFetchHost(urlString: string): boolean {
 async function handleFetch(
   url: string,
   options?: RequestInit & { withCredentials?: boolean }
-): Promise<{ data?: unknown; error?: string }> {
+): Promise<{ data?: unknown; error?: string; status?: number; body?: string }> {
   if (!isAllowedFetchHost(url)) {
     return { error: 'Host not allowed' };
   }
@@ -145,10 +218,18 @@ async function handleFetch(
     const response = await fetch(url, {
       ...fetchOptions,
       credentials: withCredentials ? 'include' : 'omit',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      return { error: `HTTP ${response.status}: ${response.statusText}` };
+      // The status decides whether a retry can help; an HTML body is kept
+      // because anti-bot challenges arrive as error pages (com-x sends 404).
+      const isHtml = (response.headers.get('content-type') || '').includes('text/html');
+      return {
+        error: `HTTP ${response.status}: ${response.statusText}`,
+        status: response.status,
+        body: isHtml ? (await response.text()).slice(0, MAX_ERROR_BODY) : undefined,
+      };
     }
 
     const contentType = response.headers.get('content-type') || '';
@@ -202,7 +283,7 @@ async function handleFetchImage(
       headers['Referer'] = referer;
     }
 
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 
     if (!response.ok) {
       return { error: `HTTP ${response.status}` };

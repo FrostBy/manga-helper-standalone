@@ -15,7 +15,8 @@ type MessageKey =
   | 'searching'
   | 'noResults'
   | 'disablePlatform'
-  | 'offsetLabel';
+  | 'offsetLabel'
+  | 'loadFailed';
 
 /**
  * Get localized message by key

@@ -6,6 +6,7 @@
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
+import { titlesMatch } from '@/src/utils/manga';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark, Chapter } from '@/src/types';
 
 /** R4.3: MangaLib-specific chapter with paid-access branch metadata.
@@ -109,8 +110,25 @@ interface MangaLibMeta {
     eng_name?: string;
     otherNames?: string[];
     cover?: { default?: string };
+    is_licensed?: boolean;
     [key: string]: unknown;
   };
+}
+
+/**
+ * Licensed titles count every chapter: everything past the preview is locked
+ * with no way to buy it, and counting only open ones turns 118 chapters into 6.
+ */
+export function lastAvailableChapter(chapters: MangaLibChapter[], isLicensed: boolean): number {
+  const counted = isLicensed
+    ? chapters
+    : chapters.filter((ch) => {
+        const restricted = ch.branches?.[0]?.restricted_view;
+        return !restricted || restricted.is_open === true;
+      });
+  // `item_number` is cumulative across volumes; `number` can restart per volume.
+  const last = counted.at(-1);
+  return Number(last?.item_number) || Number(last?.number) || 0;
 }
 
 interface MangaLibBookmarkResponse {
@@ -190,13 +208,22 @@ export class MangaLibAPI extends BasePlatformAPI {
       });
 
       const url = `${this.apiBase}?${params}`;
-      const response = await this.fetch<{ data?: Array<{ slug_url?: string }> }>(url, { headers });
+      const response = await this.fetch<MangaLibSearchResponse>(url, { headers });
+      const items = response?.data ?? [];
 
-      Logger.debug(this.config.key, 'Search result for title', { title, found: response?.data?.[0]?.slug_url ?? null });
+      // Search is fuzzy — its top hit is often a different title, so a result
+      // only counts if one of its names matches. Alt names aren't in the search
+      // payload, hence the extra lookup for the top hit.
+      let foundSlug = items.find((item) =>
+        titlesMatch([item.name, item.rus_name, item.eng_name], titles)
+      )?.slug_url;
+      if (!foundSlug && items[0]?.slug_url && titlesMatch(await this.getTitles(items[0].slug_url), titles)) {
+        foundSlug = items[0].slug_url;
+      }
 
-      if (response?.data?.[0]?.slug_url) {
-        const foundSlug = response.data[0].slug_url;
+      Logger.debug(this.config.key, 'Search result for title', { title, found: foundSlug ?? null });
 
+      if (foundSlug) {
         if (signal?.aborted) return null;
 
         // Get chapter data and cache it
@@ -240,6 +267,7 @@ export class MangaLibAPI extends BasePlatformAPI {
       eng_name: data.eng_name,
       otherNames: data.otherNames,
       cover: data.cover?.default,
+      isLicensed: data.is_licensed === true,
     };
   }
 
@@ -306,23 +334,13 @@ export class MangaLibAPI extends BasePlatformAPI {
     const token = await this.getToken();
     const chHeaders: Record<string, string> = { 'site-id': this.siteId };
     if (token) chHeaders['authorization'] = `Bearer ${token}`;
-    const chapters = await this.fetch<MangaLibChaptersResponse>(
-      `${this.apiBase}/${slug}/chapters`,
-      { headers: chHeaders }
-    );
-    if (!chapters?.data?.length) return null;
+    const [chapters, manga] = await Promise.all([
+      this.fetch<MangaLibChaptersResponse>(`${this.apiBase}/${slug}/chapters`, { headers: chHeaders }),
+      this.getManga(slug),
+    ]);
+    if (!chapters?.data) return null;
 
-    // Filter to free chapters only (no restricted_view or is_open: true)
-    const freeChapters = chapters.data.filter((ch) => {
-      const restricted = ch.branches?.[0]?.restricted_view;
-      return !restricted || restricted.is_open === true;
-    });
-
-    // Prefer cumulative `item_number` (1..N across all volumes) so titles
-    // that reset numbering between volumes ("Том 1 гл. 85 → Том 2 гл. 1")
-    // still show the real total. Fall back to `number` if missing.
-    const last = freeChapters.at(-1);
-    const lastChapter = Number(last?.item_number) || Number(last?.number) || 0;
+    const lastChapter = lastAvailableChapter(chapters.data, manga?.isLicensed === true);
 
     const bookmark = await this.getBookmark(slug);
     const lastChapterRead = bookmark?.lastChapterRead ?? 0;
@@ -354,7 +372,10 @@ export class MangaLibAPI extends BasePlatformAPI {
    * Collect all titles for search on other platforms
    */
   async getTitles(slug: string): Promise<string[]> {
-    const manga = await this.getManga(slug);
+    return this.titlesOf(await this.getManga(slug));
+  }
+
+  titlesOf(manga: Manga | null): string[] {
     if (!manga) return [];
 
     const titles: string[] = [];

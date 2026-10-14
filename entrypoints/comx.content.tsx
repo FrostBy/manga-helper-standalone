@@ -5,6 +5,8 @@
 import { render } from 'preact';
 import { ComXRouter } from '@/src/platforms/com-x.life';
 import { initLogger, Logger } from '@/src/utils';
+import { setSiteLoader } from '@/src/components/SiteLoader';
+import { comxLoader } from '@/src/components/siteLoaders';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/styles/shared.scss';
 import '@/src/platforms/com-x.life/styles.scss';
@@ -23,6 +25,7 @@ export default defineContentScript({
 
   async main() {
     await initLogger();
+    setSiteLoader(comxLoader);
     Logger.info('ComX', 'Content script loaded');
 
     // Mount onboarding tooltip

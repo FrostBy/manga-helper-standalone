@@ -5,6 +5,8 @@
 import { render } from 'preact';
 import { MangaLibRouter } from '@/src/platforms/mangalib.me';
 import { initLogger, Logger } from '@/src/utils';
+import { setSiteLoader } from '@/src/components/SiteLoader';
+import { mangalibLoader } from '@/src/components/siteLoaders';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import { resolveActiveDomain } from '@/src/utils/mirrors';
 import { config as mangalibConfig } from '@/src/platforms/mangalib.me/config';
@@ -26,6 +28,7 @@ export default defineContentScript({
 
   async main() {
     await initLogger();
+    setSiteLoader(mangalibLoader);
 
     // Apply mirror config if we're on a mirror domain
     const activeDomain = resolveActiveDomain(mangalibConfig);

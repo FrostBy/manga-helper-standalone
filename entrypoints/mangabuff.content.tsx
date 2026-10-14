@@ -5,6 +5,8 @@
 import { render } from 'preact';
 import { MangaBuffRouter } from '@/src/platforms/mangabuff.ru';
 import { initLogger, Logger } from '@/src/utils';
+import { setSiteLoader } from '@/src/components/SiteLoader';
+import { mangabuffLoader } from '@/src/components/siteLoaders';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/styles/shared.scss';
 import '@/src/platforms/mangabuff.ru/styles.scss';
@@ -23,6 +25,7 @@ export default defineContentScript({
 
   async main() {
     await initLogger();
+    setSiteLoader(mangabuffLoader);
     Logger.info('MangaBuff', 'Content script loaded');
 
     // Add class for platform-specific styles

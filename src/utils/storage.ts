@@ -6,9 +6,8 @@
  * - local:auto → platform/slug/targetPlatform → targetSlug|false (auto-discovered, with TTL)
  * - local:cache → targetPlatform/targetSlug → { chapter, lastChapterRead, expires }
  *
- * Concurrent writes within the same tab are serialized via per-key write locks
- * to prevent read-modify-write race conditions (e.g., parallel platform searches).
- * Cross-tab writes are still non-atomic — rare in practice since users use one tab.
+ * Every read-modify-write goes through a named lock that is global across tabs
+ * (see lock.ts) — without it, parallel writes drop each other's changes.
  */
 import { storage } from '@wxt-dev/storage';
 import { Logger } from './logger';
@@ -37,8 +36,10 @@ const DEFAULT_TTL = 60 * 60 * 1000;
 
 import { createLock } from './lock';
 
-const autoLock = createLock();
-const cacheLock = createLock();
+const autoLock = createLock('auto');
+const cacheLock = createLock('cache');
+const tokensLock = createLock('tokens');
+const progressLock = createLock('progress');
 
 /**
  * Manual mappings (user-defined, synced across devices)
@@ -253,12 +254,17 @@ export const cache = {
     return (await storage.getItem<AllCache>(KEYS.CACHE)) ?? {};
   },
 
+  /** Ignores TTL — for showing last known numbers while a refetch runs. */
+  async getAny(targetPlatform: string, targetSlug: string): Promise<CachedPlatformData | null> {
+    const all = await this.getAll();
+    return all[targetPlatform]?.[targetSlug] ?? null;
+  },
+
   async get(
     targetPlatform: string,
     targetSlug: string
   ): Promise<CachedPlatformData | null> {
-    const all = await this.getAll();
-    const data = all[targetPlatform]?.[targetSlug];
+    const data = await this.getAny(targetPlatform, targetSlug);
 
     if (!data) return null;
 
@@ -405,15 +411,17 @@ export const userProgress = {
     return all?.[platform]?.[slug] ?? 0;
   },
 
-  async set(platform: PlatformKey, slug: string, chapter: number): Promise<void> {
-    try {
-      const all = (await storage.getItem<Record<string, Record<string, number>>>('local:progress')) ?? {};
-      if (!all[platform]) all[platform] = {};
-      all[platform][slug] = chapter;
-      await storage.setItem('local:progress', all);
-    } catch (error) {
-      Logger.error('Storage', `Failed to save progress for ${platform}/${slug}`, error);
-    }
+  set(platform: PlatformKey, slug: string, chapter: number): Promise<void> {
+    return progressLock(async () => {
+      try {
+        const all = (await storage.getItem<Record<string, Record<string, number>>>('local:progress')) ?? {};
+        if (!all[platform]) all[platform] = {};
+        all[platform][slug] = chapter;
+        await storage.setItem('local:progress', all);
+      } catch (error) {
+        Logger.error('Storage', `Failed to save progress for ${platform}/${slug}`, error);
+      }
+    });
   },
 };
 
@@ -427,23 +435,27 @@ export const tokens = {
     return all?.[platform] ?? null;
   },
 
-  async set(platform: string, token: string): Promise<void> {
-    try {
-      const all =
-        (await storage.getItem<Record<string, string>>(KEYS.TOKENS)) ?? {};
-      all[platform] = token;
-      await storage.setItem(KEYS.TOKENS, all);
-    } catch (error) {
-      Logger.error('Storage', `Failed to save token for ${platform}`, error);
-      throw error;
-    }
+  set(platform: string, token: string): Promise<void> {
+    return tokensLock(async () => {
+      try {
+        const all =
+          (await storage.getItem<Record<string, string>>(KEYS.TOKENS)) ?? {};
+        all[platform] = token;
+        await storage.setItem(KEYS.TOKENS, all);
+      } catch (error) {
+        Logger.error('Storage', `Failed to save token for ${platform}`, error);
+        throw error;
+      }
+    });
   },
 
-  async delete(platform: string): Promise<void> {
-    const all =
-      (await storage.getItem<Record<string, string>>(KEYS.TOKENS)) ?? {};
-    delete all[platform];
-    await storage.setItem(KEYS.TOKENS, all);
+  delete(platform: string): Promise<void> {
+    return tokensLock(async () => {
+      const all =
+        (await storage.getItem<Record<string, string>>(KEYS.TOKENS)) ?? {};
+      delete all[platform];
+      await storage.setItem(KEYS.TOKENS, all);
+    });
   },
 
   async clear(): Promise<void> {

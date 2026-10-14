@@ -1,117 +1,71 @@
 /**
- * Transitive auto-resolve: if a node has slug on platform A, use A's metadata
- * (titles) to search on any target platform B that's still missing.
+ * Transitive resolve: a target missed by the current page's titles can still be
+ * found through another linked platform's names — e.g. Senkuro's alt names hit
+ * a site that MangaLib's titles missed.
  *
- * Example: inkstory dictionary knows mangalib, mangalib knows senkuro. Via
- * mangalib titles we find senkuro even when inkstory↔senkuro has no direct
- * dictionary overlap.
- *
- * Depth=1: this function does NOT recurse into itself. A new pass runs on the
- * next user action / refresh. This prevents runaway fan-out.
+ * Only titles the direct search hasn't tried are searched: bridge names mostly
+ * repeat the current page's, and re-searching them cost dozens of requests.
+ * Writing "not found" stays with the caller; `failed` lists targets whose
+ * absence couldn't be confirmed because a request failed.
  */
 import { Logger } from './logger';
-import { addOrMergeSlug, AUTO_FALSE_TTL, nodeStore, withBatch } from './nodeStorage';
+import { addOrMergeSlug } from './nodeStorage';
 import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
-import { collectTitles } from './manga';
+import { collectTitles, uniqueTitles } from './manga';
 import { safeEntries } from './platformKeys';
 import type { MangaNode, MappingValue, PlatformKey } from '@/src/types';
 
-export async function autoResolveMissing(
+export async function resolveViaBridges(
   node: MangaNode,
+  targets: readonly PlatformKey[],
+  skipBridge: PlatformKey,
+  triedTitles: ReadonlySet<string>,
   signal?: AbortSignal
-): Promise<void> {
-  const now = Date.now();
-  const allTargets = PlatformRegistry.getKeys();
-  // R3.1: safeEntries validates keys against PlatformRegistry whitelist.
-  const bridges: PlatformKey[] = [];
-  for (const [p, v] of safeEntries<MappingValue>(node.slugs)) {
-    if (typeof v === 'string') bridges.push(p);
-  }
+): Promise<{ resolved: Set<PlatformKey>; failed: Set<PlatformKey> }> {
+  const resolved = new Set<PlatformKey>();
+  const failed = new Set<PlatformKey>();
 
-  if (bridges.length === 0) return;
-
-  // F2.5: prefetch bridge metadata (titles) in parallel — reused across all targets
-  const bridgeTitles = new Map<PlatformKey, string[]>();
+  const bridges: Array<{ platform: PlatformKey; slug: string; titles: string[] }> = [];
   await Promise.all(
-    bridges.map(async (bridge) => {
-      if (signal?.aborted) return;
-      const bridgeAPI = PlatformRegistry.get(bridge);
-      const bridgeSlug = node.slugs[bridge];
-      if (!bridgeAPI || typeof bridgeSlug !== 'string') return;
+    Array.from(safeEntries<MappingValue>(node.slugs), async ([platform, slug]) => {
+      // A target can't bridge to itself: on refresh its old (possibly wrong)
+      // link is still in the node and would simply find itself again.
+      if (typeof slug !== 'string' || platform === skipBridge || targets.includes(platform)) return;
       try {
-        const manga = await bridgeAPI.getManga(bridgeSlug);
-        if (!manga) return;
-        const titles = collectTitles(manga);
-        if (titles.length > 0) bridgeTitles.set(bridge, titles);
+        const names = collectTitles(await PlatformRegistry.get(platform)?.getManga(slug));
+        const titles = uniqueTitles(names, triedTitles);
+        if (titles.length > 0) bridges.push({ platform, slug, titles });
       } catch (err) {
-        Logger.warn('transitiveResolve', `Bridge ${bridge} getManga failed`, err);
+        Logger.warn('transitiveResolve', `Bridge ${platform} getManga failed`, err);
       }
     })
   );
 
-  if (signal?.aborted) return;
-
-  // For each missing target, try bridges until one hits
-  const negativeTargets: PlatformKey[] = [];
-  for (const target of allTargets) {
-    if (signal?.aborted) return;
-    if (typeof node.slugs[target] === 'string') continue;
-    if (node.disabled[target]) continue;
-    if (node.slugs[target] === false && (node.expires[target] ?? 0) > now) continue;
-    if (node.source[target] === 'manual') continue;
-
+  for (const target of targets) {
     const targetAPI = PlatformRegistry.get(target);
     if (!targetAPI) continue;
 
-    let found = false;
-    // R5.2: only write negative cache if at least one bridge's search actually returned
-    // (null = "really no match"). Network/API errors do NOT count — we want to retry later.
-    let hadSuccessfulProbe = false;
     for (const bridge of bridges) {
-      if (signal?.aborted) return;
-      if (bridge === target) continue;
-      const titles = bridgeTitles.get(bridge);
-      if (!titles) continue;
-      const bridgeSlug = node.slugs[bridge];
-      if (typeof bridgeSlug !== 'string') continue;
-
+      if (signal?.aborted) return { resolved, failed };
       try {
-        const result = await targetAPI.search(bridge, bridgeSlug, titles, signal);
-        hadSuccessfulProbe = true;
-        if (result) {
-          await addOrMergeSlug(bridge, bridgeSlug, target, result.slug, 'auto');
-          found = true;
-          Logger.debug('transitiveResolve', `Resolved ${target} via bridge ${bridge}`, {
-            nodeId: node.id,
-            slug: result.slug,
-          });
-          break;
+        const result = await targetAPI.searchVerified(bridge.platform, bridge.slug, bridge.titles, signal);
+        if (signal?.aborted) return { resolved, failed };
+        if (result === undefined) {
+          failed.add(target);
+          continue;
         }
+        if (!result) continue;
+
+        await addOrMergeSlug(bridge.platform, bridge.slug, target, result.slug, 'auto');
+        resolved.add(target);
+        failed.delete(target);
+        break;
       } catch (err) {
-        Logger.warn('transitiveResolve', `Search ${bridge}→${target} failed`, err);
+        failed.add(target);
+        Logger.warn('transitiveResolve', `Search ${bridge.platform}→${target} failed`, err);
       }
     }
-
-    if (!found && hadSuccessfulProbe) negativeTargets.push(target);
   }
 
-  // Batch-write all negative caches at the end.
-  // R1.2: re-check each slot against the FRESH node inside the updater — user may have
-  // saved a manual slug during the slow bridge prefetch.
-  if (negativeTargets.length > 0 && !signal?.aborted) {
-    const writeTs = Date.now();
-    await withBatch(async () => {
-      await nodeStore.updateNode(node.id, (n) => {
-        for (const target of negativeTargets) {
-          if (n.source[target] === 'manual') continue;
-          if (n.disabled[target]) continue;
-          if (typeof n.slugs[target] === 'string') continue;
-          n.slugs[target] = false;
-          n.expires[target] = writeTs + AUTO_FALSE_TTL;
-          n.source[target] = 'auto';
-        }
-      });
-    });
-    Logger.debug('transitiveResolve', `Wrote negative cache`, { count: negativeTargets.length });
-  }
+  return { resolved, failed };
 }

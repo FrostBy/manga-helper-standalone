@@ -82,6 +82,9 @@ export abstract class BaseRouter {
 
     // Destroy previous page before creating new one
     if (this.currentPage) {
+      // Abort before destroy: leaving for an unrouted page never reaches
+      // createPageContext, so in-flight searches would outlive their page.
+      this.currentAbortController?.abort();
       Logger.debug('Router', 'Destroying previous page');
       const pageToDestroy = this.currentPage;
       this.currentPage = null; // Clear reference BEFORE destroy to prevent double-destroy

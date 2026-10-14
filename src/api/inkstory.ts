@@ -1,21 +1,25 @@
 /**
  * Inkstory API
- * Uses REST API + Astro component parsing
+ * Book and chapters come from the public REST API. The bookmark doesn't: the
+ * API token stays on Inkstory's server, so it is read from the title page the
+ * server renders for the logged-in user.
  */
 
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import { userProgress } from '@/src/utils/storage';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
+import { titlesMatch } from '@/src/utils/manga';
+import { readingStats, parseBookmarkIds, type InkstoryChapter } from './inkstoryProgress';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://inkstory.net';
-const API_URL = 'https://api.inkstory.net/v2/books';
+const API_URL = 'https://api.inkstory.net/v2';
 
 /**
- * Inkstory Search API Response DTO
- * GET /v2/books?search={query}&ignoreUserScopedContentStatus=true&serviceName=inkstory
- * Returns array directly
+ * Inkstory book DTO
+ * GET /v2/books?search={query}&ignoreUserScopedContentStatus=true&serviceName=inkstory (array)
+ * GET /v2/books/{slug}
  */
 interface InkstorySearchItem {
   id: string;
@@ -58,130 +62,6 @@ interface InkstorySearchItem {
 
 type InkstorySearchResult = InkstorySearchItem[];
 
-/**
- * One chapter as it appears in the page state.
- *
- * There is no cumulative ordinal here: `number` restarts inside every volume
- * and can even be fractional (`68.1` for an extra), so reading position has to
- * be derived by counting chapters rather than by reading a field.
- */
-interface InkstoryChapterRef {
-  id: string;
-  branchId: string;
-  volume: number;
-  number: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-/**
- * Inkstory ships page state as a devalue-encoded array where every value is an
- * index into that same array. These resolve a reference one level down.
- */
-function derefValue(state: unknown[], ref: unknown): unknown {
-  return typeof ref === 'number' ? state[ref] : ref;
-}
-
-function derefNumber(state: unknown[], ref: unknown): number | null {
-  const value = derefValue(state, ref);
-  return typeof value === 'number' ? value : null;
-}
-
-function derefString(state: unknown[], ref: unknown): string | null {
-  const value = derefValue(state, ref);
-  return typeof value === 'string' ? value : null;
-}
-
-/**
- * Every chapter in the state, de-duplicated by id — the same chapter is
- * encoded more than once (chapters list, bookmark, "latest" block).
- */
-function collectChapters(state: unknown[]): InkstoryChapterRef[] {
-  const chapters = new Map<string, InkstoryChapterRef>();
-
-  for (const item of state) {
-    if (!isRecord(item)) continue;
-    if (!('number' in item) || !('volume' in item) || !('branchId' in item)) continue;
-
-    const id = derefString(state, item.id);
-    const branchId = derefString(state, item.branchId);
-    const volume = derefNumber(state, item.volume);
-    const number = derefNumber(state, item.number);
-    if (id === null || branchId === null || volume === null || number === null) continue;
-
-    chapters.set(id, { id, branchId, volume, number });
-  }
-
-  return [...chapters.values()];
-}
-
-/** Chapters of a single branch (translator) in reading order. */
-function sortBranchChapters(
-  chapters: InkstoryChapterRef[],
-  branchId: string
-): InkstoryChapterRef[] {
-  return chapters
-    .filter((chapter) => chapter.branchId === branchId)
-    .sort((a, b) => a.volume - b.volume || a.number - b.number);
-}
-
-/**
- * Derive total chapters + reading position from Inkstory's page state.
- *
- * Exported because the content script reads the very same state off the live
- * page — keeping one implementation avoids the two drifting apart.
- */
-export function parseAstroState(state: unknown[]): {
-  chapter: number;
-  lastChapterRead: number;
-} {
-  const chapters = collectChapters(state);
-
-  // Total = the fullest branch, counted from the chapters themselves.
-  // The `chaptersCount` fields disagree (the book-level one lags behind and
-  // skips extras like `68.1`), so they only serve as a fallback for when the
-  // state carries no chapter objects at all.
-  const countPerBranch = new Map<string, number>();
-  for (const { branchId } of chapters) {
-    countPerBranch.set(branchId, (countPerBranch.get(branchId) ?? 0) + 1);
-  }
-
-  let chapter = Math.max(0, ...countPerBranch.values());
-
-  if (chapter === 0) {
-    const declaredCounts: number[] = [];
-    for (const item of state) {
-      if (!isRecord(item) || !('chaptersCount' in item)) continue;
-      const count = derefNumber(state, item.chaptersCount);
-      if (count !== null) declaredCounts.push(count);
-    }
-    chapter = Math.max(0, ...declaredCounts);
-  }
-
-  // Progress = the bookmarked chapter's position within its own branch.
-  // `chapter.number` cannot be used: it restarts per volume, so a bookmark on
-  // "volume 2, chapter 70" of a 141-chapter title used to report 70.
-  let lastChapterRead = 0;
-  for (const item of state) {
-    if (!isRecord(item) || !('chapter' in item) || !('userId' in item)) continue;
-
-    const bookmarked = derefValue(state, item.chapter);
-    if (!isRecord(bookmarked)) continue;
-
-    const id = derefString(state, bookmarked.id);
-    const branchId = derefString(state, bookmarked.branchId);
-    if (id === null || branchId === null) continue;
-
-    const ordinal =
-      sortBranchChapters(chapters, branchId).findIndex((c) => c.id === id) + 1;
-    if (ordinal > lastChapterRead) lastChapterRead = ordinal;
-  }
-
-  return { chapter, lastChapterRead };
-}
-
 export class InkstoryAPI extends BasePlatformAPI {
   readonly config: PlatformConfig = {
     key: 'inkstory',
@@ -190,7 +70,7 @@ export class InkstoryAPI extends BasePlatformAPI {
   };
 
   link(slug: string): string {
-    return `${BASE_URL}/content/${slug}?tab=chapters`;
+    return `${BASE_URL}/content/${slug}/chapters`;
   }
 
   getSlugFromURL(url: string): string | null {
@@ -211,7 +91,7 @@ export class InkstoryAPI extends BasePlatformAPI {
     for (const title of titles) {
       if (signal?.aborted) return null;
 
-      const slug = await this.searchByTitle(title);
+      const slug = await this.searchByTitle(title, titles);
       Logger.debug(this.config.key, 'Search result for title', { title, found: slug });
 
       if (slug) {
@@ -235,8 +115,8 @@ export class InkstoryAPI extends BasePlatformAPI {
   /**
    * Search by single title with title matching
    */
-  private async searchByTitle(title: string): Promise<string | null> {
-    const url = `${API_URL}?search=${encodeURIComponent(title)}&ignoreUserScopedContentStatus=true&serviceName=inkstory`;
+  private async searchByTitle(title: string, allTitles: string[]): Promise<string | null> {
+    const url = `${API_URL}/books?search=${encodeURIComponent(title)}&ignoreUserScopedContentStatus=true&serviceName=inkstory`;
     const response = await this.fetch<InkstorySearchResult>(url);
 
     // API returns array directly
@@ -244,92 +124,54 @@ export class InkstoryAPI extends BasePlatformAPI {
       return null;
     }
 
-    // Find matching book by altNames or name values
-    const matched = response.find((book) => {
-      const altMatch = book.altNames?.some((alt) => alt.name === title);
-      const nameMatch = book.name && Object.values(book.name).some((name) => name === title);
-      return altMatch || nameMatch;
-    });
+    const matched = response.find((book) =>
+      titlesMatch(
+        [...(book.altNames ?? []).map((alt) => alt.name), ...Object.values(book.name ?? {})],
+        allTitles
+      )
+    );
 
     return matched?.slug ?? null;
   }
 
-  /**
-   * Get manga data by parsing it-astro-state script (devalue format)
-   * Contains: chaptersCount, current-book-bookmarks with chapter number
-   */
-  private async getMangaData(slug: string): Promise<{ chapter: number; lastChapterRead: number } | null> {
-    const url = `${BASE_URL}/content/${slug}?tab=chapters`;
-
-    // Use cookies for authenticated data (bookmarks)
-    const html = await this.fetch<string>(url, { withCredentials: true } as RequestInit);
-
-    if (!html || typeof html !== 'string') return null;
-
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-
-      // Parse it-astro-state script (devalue format)
-      const stateScript = doc.querySelector('script#it-astro-state');
-      if (!stateScript?.textContent) {
-        Logger.warn(this.config.key, 'Could not find it-astro-state script');
-        return null;
-      }
-
-      const state = JSON.parse(stateScript.textContent);
-      if (!Array.isArray(state)) return null;
-
-      const { chapter, lastChapterRead: parsedRead } = parseAstroState(state);
-      let lastChapterRead = parsedRead;
-
-      // Fallback: read from userProgress storage (saved when user visits Inkstory)
-      if (lastChapterRead === 0) {
-        lastChapterRead = await userProgress.get(this.config.key, slug);
-      }
-
-      return { chapter, lastChapterRead };
-    } catch (error) {
-      Logger.error(this.config.key, 'Failed to parse manga page', error);
-      return null;
-    }
+  private async fetchChapters(slug: string): Promise<InkstoryChapter[] | null> {
+    const book = await this.fetch<InkstorySearchItem>(`${API_URL}/books/${slug}`);
+    if (!book?.id) return null;
+    const chapters = await this.fetch<InkstoryChapter[]>(`${API_URL}/chapters?bookId=${book.id}`);
+    return Array.isArray(chapters) ? chapters : null;
   }
 
-  /**
-   * Get manga metadata (with fetch)
-   */
+  async getMangaData(slug: string): Promise<{ chapter: number; lastChapterRead: number } | null> {
+    const [chapters, html] = await Promise.all([
+      this.fetchChapters(slug),
+      this.fetch<string>(`${BASE_URL}/content/${slug}`, { withCredentials: true } as RequestInit),
+    ]);
+    if (!chapters || typeof html !== 'string') {
+      // A malformed answer is a failure too; a request that failed is already
+      // counted, but only the counter's change is ever read.
+      this.failedFetches++;
+      return null;
+    }
+
+    const stats = readingStats(chapters, parseBookmarkIds(html));
+    // Logged out: the site keeps no bookmark, so use what ChapterPage saved.
+    if (stats.lastChapterRead === 0) {
+      stats.lastChapterRead = await userProgress.get(this.config.key, slug);
+    }
+    return stats;
+  }
+
+  async getChapterPosition(slug: string, chapterId: string): Promise<number> {
+    const chapters = await this.fetchChapters(slug);
+    return chapters ? readingStats(chapters, [chapterId]).lastChapterRead : 0;
+  }
+
   async getManga(slug: string): Promise<Manga | null> {
-    const url = `${BASE_URL}/content/${slug}`;
-    const html = await this.fetch<string>(url);
-    if (!html || typeof html !== 'string') return null;
-    return this.parseMangaHTML(html);
-  }
-
-  /**
-   * Parse manga metadata from HTML (no fetch)
-   */
-  parseMangaHTML(html: string): Manga | null {
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-
-      // Parse title from h1
-      const h1 = doc.querySelector('h1');
-      const name = h1?.textContent?.trim();
-      if (!name) return null;
-
-      // Parse alternative names from p after h1
-      const otherNames: string[] = [];
-      const altP = h1?.nextElementSibling;
-      if (altP?.tagName === 'P' && altP.textContent) {
-        const alts = altP.textContent.split('/').map((s) => s.trim()).filter(Boolean);
-        otherNames.push(...alts);
-      }
-
-      return { name, otherNames };
-    } catch {
-      return null;
-    }
+    const book = await this.fetch<InkstorySearchItem>(`${API_URL}/books/${slug}`);
+    const { ru, en, original } = book?.name ?? {};
+    const [name, ...otherNames] = [ru, en, original, ...(book?.altNames ?? []).map((alt) => alt.name)]
+      .filter((title): title is string => !!title);
+    return name ? { name, otherNames, cover: book?.poster } : null;
   }
 
   /**
@@ -358,7 +200,7 @@ export class InkstoryAPI extends BasePlatformAPI {
    * Simple search by query - for popup use
    */
   async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }>> {
-    const url = `${API_URL}?search=${encodeURIComponent(query)}&ignoreUserScopedContentStatus=true&serviceName=inkstory`;
+    const url = `${API_URL}/books?search=${encodeURIComponent(query)}&ignoreUserScopedContentStatus=true&serviceName=inkstory`;
     const response = await this.fetch<InkstorySearchResult>(url);
 
     if (!response || !Array.isArray(response)) return [];

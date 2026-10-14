@@ -16,7 +16,7 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { t } from '@/src/utils';
 import type { PlatformKey } from '@/src/types';
-import { ChapterStats } from '@/src/components/ChapterStats';
+import { PlatformStats } from '@/src/components/PlatformStats';
 import { usePlatformItems } from '@/src/components/usePlatformItems';
 
 interface Props {
@@ -25,7 +25,7 @@ interface Props {
 
 export function ComXPlatformButton({ onRefresh }: Props) {
   const items = usePlatformItems(onRefresh);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click / Esc — same feel as the site's own list
@@ -55,8 +55,8 @@ export function ComXPlatformButton({ onRefresh }: Props) {
         aria-expanded={open}
         onClick={() => setOpen((isOpen) => !isOpen)}
       >
-        <span>{t('otherSites')}</span>
-        <span class={`fal fa-angle-down mh-comx-caret${open ? ' is-open' : ''}`} />
+        <span class="fal fa-th" />
+        {t('otherSites')}
       </button>
 
       <ul class={`mh-comx-list${open ? ' is-open' : ''}`}>
@@ -68,18 +68,7 @@ export function ComXPlatformButton({ onRefresh }: Props) {
               style={{ opacity: item.found || item.isLoading ? 1 : 0.5 }}
             >
               <span class="platform-name">{item.api.config.title}</span>
-              {item.isLoading ? (
-                <span class="platform-stats">…</span>
-              ) : item.disabled ? (
-                <span class="platform-stats chapter-stats">- <small>[-]</small></span>
-              ) : (
-                <ChapterStats
-                  total={item.chapter}
-                  read={item.lastChapterRead}
-                  hasMore={item.hasMore}
-                  className="platform-stats"
-                />
-              )}
+              <PlatformStats item={item} />
             </a>
 
             <span

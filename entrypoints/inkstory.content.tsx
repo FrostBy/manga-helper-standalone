@@ -1,12 +1,12 @@
 /**
  * Inkstory content script
  * Entry point for inkstory.net / manga.ovh platform
- *
- * Runs at document_start to capture it-astro-state script before it's removed
  */
 import { render } from 'preact';
 import { InkstoryRouter } from '@/src/platforms/inkstory.net';
 import { initLogger, Logger } from '@/src/utils';
+import { setSiteLoader } from '@/src/components/SiteLoader';
+import { inkstoryLoader } from '@/src/components/siteLoaders';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/styles/shared.scss';
 import '@/src/platforms/inkstory.net/styles.scss';
@@ -19,64 +19,15 @@ import '@/src/platforms/readmanga.io/api';
 import '@/src/platforms/inkstory.net/api';
 import '@/src/platforms/com-x.life/api';
 
-// Store captured astro state globally for router to access
-declare global {
-  interface Window {
-    __inkstoryAstroState?: unknown[];
-  }
-}
-
-function captureAstroState(): void {
-  // Check if already exists
-  const existing = document.querySelector('script#it-astro-state');
-  if (existing?.textContent) {
-    try {
-      window.__inkstoryAstroState = JSON.parse(existing.textContent);
-    } catch {
-      // Ignore parse errors
-    }
-    return;
-  }
-
-  // Watch for script to appear (it gets removed after page init)
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (node instanceof HTMLScriptElement && node.id === 'it-astro-state') {
-          try {
-            if (node.textContent) {
-              window.__inkstoryAstroState = JSON.parse(node.textContent);
-            }
-          } catch {
-            // Ignore parse errors
-          }
-          observer.disconnect();
-          return;
-        }
-      }
-    }
-  });
-
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-  });
-
-  // Stop observing after 10 seconds
-  setTimeout(() => observer.disconnect(), 10000);
-}
-
 export default defineContentScript({
   matches: ['*://*.inkstory.net/*', '*://*.manga.ovh/*'],
   runAt: 'document_start',
 
   main() {
-    // Capture astro state ASAP before it's removed
-    captureAstroState();
-
     // Wait for DOM to be ready before initializing router
     const initRouter = async () => {
       await initLogger();
+      setSiteLoader(inkstoryLoader);
       Logger.info('Inkstory', 'Content script loaded');
 
       // Mount onboarding tooltip

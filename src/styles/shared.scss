@@ -210,18 +210,30 @@
   }
 }
 
-/* Inline loader for refresh */
-.inline-loader {
+/*
+ * Site spinner inside our rows. !important because site CSS sizes the same
+ * classes for page-level loaders with higher specificity (MangaLib's
+ * `.loader.size-sm` is 18px, `.loader` 40px) — that is what blew up the rows.
+ */
+.mh-site-loader {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 1em;
+  height: 1em;
   vertical-align: middle;
 
+  > * {
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+  }
+
+  > .spinner-border,
+  > .pack-roulette__button-spinner {
+    border-width: 0.15em !important;
+  }
+
+  /* MangaLib's markup is reused on Senkuro, where no site CSS animates it */
   .loader {
-    width: 100%;
-    height: 100%;
     animation: rotate 2s linear infinite;
 
     .path {
@@ -231,4 +243,13 @@
       animation: dash 1.5s ease-in-out infinite;
     }
   }
+}
+
+.mh-stale {
+  opacity: 0.5;
+}
+
+.mh-failed {
+  margin-left: 4px;
+  cursor: help;
 }

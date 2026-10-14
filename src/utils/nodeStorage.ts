@@ -29,7 +29,7 @@ export const AUTO_FALSE_TTL = 60 * 60 * 1000; // 1h
 
 import { createLock } from './lock';
 /** Serialize writes across nodes/index to avoid race conditions. */
-const writeLock = createLock();
+const writeLock = createLock('nodes');
 
 function genId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();

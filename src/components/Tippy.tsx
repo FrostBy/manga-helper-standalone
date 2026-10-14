@@ -42,7 +42,14 @@ export function Tippy({ children, content, injectCSS = false, ...props }: TippyP
       ...props,
     });
 
+    // Popper re-positions only on scroll/resize: a dropdown shown on load while
+    // the site still renders (Senkuro) would ride the page's growth far below
+    // its button.
+    const relayout = new ResizeObserver(() => instanceRef.current?.popperInstance?.update());
+    relayout.observe(document.body);
+
     return () => {
+      relayout.disconnect();
       if (instanceRef.current && !instanceRef.current.state.isDestroyed) {
         instanceRef.current.destroy();
       }

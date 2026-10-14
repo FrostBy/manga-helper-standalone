@@ -7,6 +7,7 @@ import { storage } from '@wxt-dev/storage';
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
+import { titlesMatch } from '@/src/utils/manga';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://a.zazaza.me';
@@ -97,7 +98,7 @@ export class ReadMangaAPI extends BasePlatformAPI {
     for (const title of titles) {
       if (signal?.aborted) return null;
 
-      const slug = await this.searchByTitle(title);
+      const slug = await this.searchByTitle(title, titles);
       Logger.debug(this.config.key, 'Search result for title', { title, found: slug });
 
       if (slug) {
@@ -121,7 +122,7 @@ export class ReadMangaAPI extends BasePlatformAPI {
   /**
    * Search by single title with title matching
    */
-  private async searchByTitle(title: string): Promise<string | null> {
+  private async searchByTitle(title: string, allTitles: string[]): Promise<string | null> {
     const url = new URL(`${BASE_URL}/search/suggestion`);
     url.searchParams.set('query', title);
     url.searchParams.append('types[]', 'CREATION');
@@ -134,7 +135,7 @@ export class ReadMangaAPI extends BasePlatformAPI {
 
     // Find matching suggestion by value or names
     const matched = suggestions.find((s) =>
-      [s.value, ...(s.names ?? [])].includes(title)
+      titlesMatch([s.value, ...(s.names ?? [])], allTitles)
     );
 
     // Extract slug from link (e.g. "/slug" -> "slug")
@@ -226,6 +227,7 @@ export class ReadMangaAPI extends BasePlatformAPI {
       return { chapter, lastChapterRead };
     } catch (error) {
       Logger.error(this.config.key, 'Failed to parse manga page', error);
+      this.failedFetches++;
       return null;
     }
   }

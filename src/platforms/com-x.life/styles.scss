@@ -13,22 +13,6 @@
 
 .comx .mh-comx-btn {
   width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-/* Caret mirrors the open state */
-.comx .mh-comx-caret {
-  font-size: 11px;
-  color: var(--tt-darker-2);
-  transition: transform 0.15s ease;
-
-  &.is-open {
-    transform: rotate(180deg);
-    color: var(--accent);
-  }
 }
 
 /* Active row highlight matches the site's own list (li.is-active) */

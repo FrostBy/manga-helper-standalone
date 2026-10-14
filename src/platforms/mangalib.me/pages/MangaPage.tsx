@@ -11,7 +11,7 @@ import { useMappingsStore } from '@/src/stores/mappings';
 import { useMangaStore } from '@/src/stores/manga';
 import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
 import { mangalibAPI } from '@/src/api';
-import type { MangaLibChapter } from '@/src/api/mangalib';
+import { lastAvailableChapter, type MangaLibChapter } from '@/src/api/mangalib';
 import {
   loadAllPlatformsData,
   handleRefresh as doRefresh,
@@ -31,6 +31,7 @@ export class MangaPage extends BasePage {
 
   // Store subscriptions
   private unsubscribeStore: (() => void) | null = null;
+  private unsubscribeMappings: (() => void) | null = null;
 
   protected async initialize(): Promise<void> {
     // Wait for key DOM elements
@@ -70,7 +71,7 @@ export class MangaPage extends BasePage {
       this.context.currentPlatform,
       Array.from(PlatformRegistry.getOthers(this.context.currentPlatform).keys()),
       this.signal,
-      { loggerContext: 'MangaLibPage', onLoaded: (k) => this.checkNewChapters(k) }
+      { loggerContext: 'MangaLibPage' }
     );
 
     // Subscribe to store changes
@@ -87,22 +88,15 @@ export class MangaPage extends BasePage {
     freeChapters: number;
   }> {
     // Fetch in parallel
-    const [titles, chapters, bookmark] = await Promise.all([
-      mangalibAPI.getTitles(slug),
+    const [manga, chapters, bookmark] = await Promise.all([
+      mangalibAPI.getManga(slug),
       mangalibAPI.getChapters(slug),
       mangalibAPI.getBookmark(slug),
     ]);
-
-    // Count free chapters (no restricted_view or is_open: true)
-    let freeChapters = 0;
-    if (chapters?.data) {
-      const freeList = chapters.data.filter((ch) => {
-        const restricted = (ch as MangaLibChapter).branches?.[0]?.restricted_view;
-        return !restricted || restricted.is_open === true;
-      });
-      const last = freeList.at(-1) as MangaLibChapter | undefined;
-      freeChapters = Number(last?.item_number) || Number(last?.number) || 0;
-    }
+    const titles = mangalibAPI.titlesOf(manga);
+    const freeChapters = chapters?.data
+      ? lastAvailableChapter(chapters.data as MangaLibChapter[], manga?.isLicensed === true)
+      : 0;
 
     return {
       titles: titles.length > 0 ? titles : [slug.replace(/-/g, ' ')],
@@ -152,7 +146,7 @@ export class MangaPage extends BasePage {
       <PlatformButton
         theme="dropdown"
         showOnMount={true}
-        onRefresh={(key) => doRefresh(this.context.currentPlatform, key, this.signal, { loggerContext: 'MangaLibPage', onLoaded: (k) => this.checkNewChapters(k) })}
+        onRefresh={(key) => doRefresh(this.context.currentPlatform, key, this.signal, { loggerContext: 'MangaLibPage' })}
         asChild
       >
         <NativeButton />
@@ -175,42 +169,51 @@ export class MangaPage extends BasePage {
 
     render(
       <EditModal
-        onSave={(key, url) => doSaveLink(this.context.currentPlatform, key, url, this.signal, { loggerContext: 'MangaLibPage', onLoaded: (k) => this.checkNewChapters(k) })}
-        onDelete={(key) => doDeleteLink(this.context.currentPlatform, key, this.signal, { loggerContext: 'MangaLibPage', onLoaded: (k) => this.checkNewChapters(k) })}
+        onSave={(key, url) => doSaveLink(this.context.currentPlatform, key, url, this.signal, { loggerContext: 'MangaLibPage' })}
+        onDelete={(key) => doDeleteLink(this.context.currentPlatform, key, this.signal, { loggerContext: 'MangaLibPage' })}
       />,
       this.modalContainer
     );
   }
 
   /**
-   * Check if platform has more chapters than current (free chapters)
+   * Recomputed from the full state on every change: setting it only to `true`
+   * left the "new" mark lit after a refresh or disable removed the lead.
+   * Disabled platforms are skipped — disabling doesn't clear their cached data.
    */
-  private checkNewChapters(platformKey: PlatformKey): void {
-    const { freeChapters } = useMangaStore.getState();
-    const { cachedResults, offsets } = useMappingsStore.getState();
+  private updateHasNewChapters(): void {
+    const { freeChapters, hasNewChapters, setHasNewChapters } = useMangaStore.getState();
+    const { cachedResults, offsets, disabled } = useMappingsStore.getState();
 
-    const cached = cachedResults[platformKey];
-    const offset = offsets[platformKey] ?? 0;
+    const hasNew = Object.entries(cachedResults).some(([key, cached]) => {
+      const platform = key as PlatformKey;
+      return !!cached && !disabled[platform] && cached.chapter + (offsets[platform] ?? 0) > freeChapters;
+    });
 
-    if (cached && cached.chapter + offset > freeChapters) {
-      useMangaStore.getState().setHasNewChapters(true);
-    }
+    if (hasNew !== hasNewChapters) setHasNewChapters(hasNew);
   }
 
-  /**
-   * Subscribe to store changes for chapters and hasNewChapters
-   */
   private subscribeToStoreChanges(): void {
     // Cleanup previous subscription if exists (prevents leaks on double render)
     this.unsubscribeStore?.();
+    this.unsubscribeMappings?.();
 
     this.unsubscribeStore = useMangaStore.subscribe((state, prevState) => {
-      // Update chapters tab when chapters load
-      if (state.chapters !== prevState.chapters) {
-        this.renderChaptersInTab();
-      }
-      // Note: hasNewChapters is handled by PlatformButton component via store
+      if (state.chapters !== prevState.chapters) this.renderChaptersInTab();
+      if (state.freeChapters !== prevState.freeChapters) this.updateHasNewChapters();
     });
+
+    this.unsubscribeMappings = useMappingsStore.subscribe((state, prevState) => {
+      if (
+        state.cachedResults !== prevState.cachedResults ||
+        state.offsets !== prevState.offsets ||
+        state.disabled !== prevState.disabled
+      ) {
+        this.updateHasNewChapters();
+      }
+    });
+
+    this.updateHasNewChapters();
   }
 
   /**
@@ -238,6 +241,8 @@ export class MangaPage extends BasePage {
     // Unsubscribe from store
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
+    this.unsubscribeMappings?.();
+    this.unsubscribeMappings = null;
 
     // Always render(null) to trigger cleanup hooks, only check isConnected for remove()
     if (this.buttonContainer) {

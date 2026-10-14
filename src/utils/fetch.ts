@@ -8,7 +8,14 @@ import { Logger } from './logger';
 interface FetchResponse<T = unknown> {
   data?: T;
   error?: string;
+  status?: number;
+  body?: string;
 }
+
+/** No `status` means the request never got an HTTP answer (network, timeout). */
+export type FetchResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; status?: number; body?: string };
 
 /**
  * Fetch via background script (bypasses CORS)
@@ -17,7 +24,7 @@ interface FetchResponse<T = unknown> {
 export async function bgFetch<T = unknown>(
   url: string,
   options?: RequestInit
-): Promise<T | null> {
+): Promise<FetchResult<T>> {
   try {
     const response = await browser.runtime.sendMessage({
       type: 'fetch',
@@ -27,13 +34,14 @@ export async function bgFetch<T = unknown>(
 
     if (response.error) {
       Logger.error('bgFetch', response.error, { url });
-      return null;
+      return { ok: false, status: response.status, body: response.body };
     }
 
-    return response.data ?? null;
+    if (response.data == null) return { ok: false };
+    return { ok: true, data: response.data };
   } catch (error) {
     Logger.error('bgFetch', 'Failed to send message', error);
-    return null;
+    return { ok: false };
   }
 }
 

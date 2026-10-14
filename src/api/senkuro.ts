@@ -6,6 +6,7 @@
 import { BasePlatformAPI } from './base';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
+import { titlesMatch } from '@/src/utils/manga';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const DEFAULT_GRAPHQL_URL = 'https://api.senkuro.me/graphql';
@@ -195,8 +196,9 @@ export class SenkuroAPI extends BasePlatformAPI {
       });
 
       // Check if any alternativeNames match our titles
-      const hasMatch = mangaData.alternativeNames?.some((name) =>
-        titles.includes(name.content ?? '')
+      const hasMatch = titlesMatch(
+        mangaData.alternativeNames?.map((name) => name.content) ?? [],
+        titles
       );
 
       if (hasMatch) {
@@ -254,7 +256,7 @@ export class SenkuroAPI extends BasePlatformAPI {
         ...(node.titles?.map((t) => t.content) ?? []),
       ].filter(Boolean) as string[];
 
-      return entityTitles.some((t) => allTitles.includes(t));
+      return titlesMatch(entityTitles, allTitles);
     });
 
     return {
@@ -299,7 +301,10 @@ export class SenkuroAPI extends BasePlatformAPI {
     });
 
     const manga = response?.data?.manga;
-    if (!manga) return null;
+    if (!manga) {
+      if (response) this.failedFetches++;
+      return null;
+    }
 
     // Calculate max chapter from branches
     const branchChapters = manga.branches

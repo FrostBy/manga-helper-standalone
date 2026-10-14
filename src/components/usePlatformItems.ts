@@ -16,6 +16,9 @@ export interface PlatformItem {
   disabled: boolean;          // manual-false OR auto-false — affects sorting / "- [-]" stats
   manuallyDisabled: boolean;  // only manual-false — affects refresh button availability
   hasMore: boolean;
+  hasData: boolean;
+  stale: boolean;
+  failed: boolean;
   onRefresh: () => void;
   onEdit: () => void;
 }
@@ -30,6 +33,7 @@ export function usePlatformItems(
   const autoLinks = useMappingsStore((s) => s.autoLinks);
   const offsets = useMappingsStore((s) => s.offsets);
   const disabledMap = useMappingsStore((s) => s.disabled);
+  const failedMap = useMappingsStore((s) => s.failed);
 
   const openModal = useMangaStore((s) => s.openModal);
   const freeChapters = useMangaStore((s) => s.freeChapters);
@@ -71,6 +75,7 @@ export function usePlatformItems(
     const url = hasMapping ? api.link(targetSlug) : `https://${api.config.domain}`;
     const modalUrl = hasMapping ? api.link(targetSlug) : '';
     const { chapter, read: lastChapterRead } = getDisplay(key);
+    const cached = cachedResults[key];
 
     return {
       key,
@@ -84,6 +89,9 @@ export function usePlatformItems(
       disabled,
       manuallyDisabled,
       hasMore: chapter > freeChapters,
+      hasData: !!cached,
+      stale: !!cached && cached.expires < Date.now(),
+      failed: !!failedMap[key],
       onRefresh: () => onRefresh(key),
       onEdit: () => openModal(key, modalUrl),
     };

@@ -5,6 +5,8 @@
 import { render } from 'preact';
 import { ReadMangaRouter } from '@/src/platforms/readmanga.io';
 import { initLogger, Logger } from '@/src/utils';
+import { setSiteLoader } from '@/src/components/SiteLoader';
+import { readmangaLoader } from '@/src/components/siteLoaders';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
 import '@/src/styles/shared.scss';
 import '@/src/platforms/readmanga.io/styles.scss';
@@ -23,6 +25,7 @@ export default defineContentScript({
 
   async main() {
     await initLogger();
+    setSiteLoader(readmangaLoader);
     Logger.info('ReadManga', 'Content script loaded');
 
     // Mount onboarding tooltip

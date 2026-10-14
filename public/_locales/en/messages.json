@@ -47,6 +47,9 @@
   "offsetLabel": {
     "message": "Chapter offset"
   },
+  "loadFailed": {
+    "message": "Couldn't load — press refresh"
+  },
   "onboardingText": {
     "message": "Click the extension icon to discover more features"
   },

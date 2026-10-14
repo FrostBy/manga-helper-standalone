@@ -6,3 +6,5 @@ export { PlatformDropdown } from './PlatformDropdown';
 export { BootstrapPlatformButton } from './BootstrapPlatformButton';
 export { ChapterStats } from './ChapterStats';
 export { EditModal } from './EditModal';
+export { SiteLoader, setSiteLoader } from './SiteLoader';
+export { PlatformStats } from './PlatformStats';

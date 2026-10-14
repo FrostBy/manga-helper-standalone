@@ -9,9 +9,11 @@ import { cache } from '@/src/utils/storage';
 export class ChapterPage extends BasePage {
   private advance = createScrollAdvance({
     onReachBottom: () => {
-      // `href` points back at the current page — navigation is wired to the
-      // site's own click handler, so the element must be clicked.
-      document.querySelector<HTMLElement>('.next-button-web')?.click();
+      // After the last chapter the button leads to `/{slug}/finish` (summary),
+      // so only a link to another chapter counts as "next".
+      const next = document.querySelector<HTMLAnchorElement>('.next-button-web');
+      const path = next ? new URL(next.href, location.href).pathname : '';
+      if (/^\/[^/]+\/vol\d+\/\d+/.test(path)) next!.click();
     },
   });
 

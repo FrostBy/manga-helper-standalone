@@ -32,6 +32,8 @@ interface MappingsState {
   offsets: Partial<Record<PlatformKey, number>>;
   disabled: Partial<Record<PlatformKey, true>>;
   cachedResults: Partial<Record<PlatformKey, CachedPlatformData | null>>;
+  /** Last load hit a request error — the row's numbers are unknown, not zero. */
+  failed: Partial<Record<PlatformKey, true>>;
 
   loading: boolean;
   loadingPlatforms: Set<PlatformKey>;
@@ -58,6 +60,7 @@ interface MappingsState {
   setDisabled: (targetPlatform: PlatformKey, value: boolean) => Promise<void>;
 
   setLoading: (targetPlatform: PlatformKey, loading: boolean) => void;
+  setFailed: (targetPlatform: PlatformKey, failed: boolean) => void;
   getSlugWithSource: (targetPlatform: PlatformKey) => Promise<{ slug: MappingValue | null; source: SlugSource }>;
   isLoading: (targetPlatform: PlatformKey) => boolean;
 
@@ -113,6 +116,7 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
   offsets: {},
   disabled: {},
   cachedResults: {},
+  failed: {},
   loading: false,
   loadingPlatforms: new Set(),
 
@@ -122,10 +126,14 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
     try {
       const node = await nodeStore.resolveByTuple(platform, slug);
       const projected = projectNode(node);
+      // Loads aborted by navigation never clear their spinner (they must not
+      // touch the next page's state), so a new title starts from a clean set.
       set({
         nodeId: node?.id ?? null,
         ...projected,
         cachedResults: {},
+        failed: {},
+        loadingPlatforms: new Set(),
         loading: false,
       });
       if (node) {
@@ -140,6 +148,8 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
         offsets: {},
         disabled: {},
         cachedResults: {},
+        failed: {},
+        loadingPlatforms: new Set(),
         loading: false,
       });
     }
@@ -154,13 +164,15 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
     set({ nodeId: node?.id ?? null, ...projected });
   },
 
+  /**
+   * Shows the cached entry even when expired — old numbers beat an empty
+   * "0 [0]" while the refetch runs — but returns it only if still fresh, so
+   * callers know to refetch. No loading flag: this is a storage read, and
+   * flagging it flashed a spinner on every row.
+   */
   loadCachedResult: async (targetPlatform: PlatformKey) => {
-    const { currentPlatform, currentSlug, loadingPlatforms } = get();
+    const { currentPlatform, currentSlug } = get();
     if (!currentPlatform || !currentSlug) return null;
-
-    const newLoading = new Set(loadingPlatforms);
-    newLoading.add(targetPlatform);
-    set({ loadingPlatforms: newLoading });
 
     try {
       const { slug: targetSlug } = await getTargetSlug(
@@ -169,30 +181,18 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
         targetPlatform
       );
 
-      if (!targetSlug) {
+      const entry = typeof targetSlug === 'string' ? await cache.getAny(targetPlatform, targetSlug) : null;
+      // A refresh deletes the stored entry before refetching; keep showing the
+      // old numbers until new ones land rather than blanking the row.
+      if (entry || typeof targetSlug !== 'string') {
         set((state) => ({
-          cachedResults: { ...state.cachedResults, [targetPlatform]: null },
+          cachedResults: { ...state.cachedResults, [targetPlatform]: entry },
         }));
-        return null;
       }
-
-      const result = await cache.get(targetPlatform, targetSlug);
-      set((state) => ({
-        cachedResults: { ...state.cachedResults, [targetPlatform]: result },
-      }));
-      return result;
+      return entry && entry.expires > Date.now() ? entry : null;
     } catch (error) {
       Logger.error('MappingsStore', `Failed to load cache for ${targetPlatform}`, error);
-      set((state) => ({
-        cachedResults: { ...state.cachedResults, [targetPlatform]: null },
-      }));
       return null;
-    } finally {
-      set((state) => {
-        const updated = new Set(state.loadingPlatforms);
-        updated.delete(targetPlatform);
-        return { loadingPlatforms: updated };
-      });
     }
   },
 
@@ -299,6 +299,16 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
     });
   },
 
+  setFailed: (targetPlatform: PlatformKey, failed: boolean) => {
+    set((state) => {
+      if (!!state.failed[targetPlatform] === failed) return state;
+      const next = { ...state.failed };
+      if (failed) next[targetPlatform] = true;
+      else delete next[targetPlatform];
+      return { failed: next };
+    });
+  },
+
   isLoading: (targetPlatform: PlatformKey) => {
     return get().loadingPlatforms.has(targetPlatform);
   },
@@ -313,6 +323,7 @@ export const useMappingsStore = create<MappingsState>((set, get) => ({
       offsets: {},
       disabled: {},
       cachedResults: {},
+      failed: {},
       loading: false,
       loadingPlatforms: new Set(),
     });

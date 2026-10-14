@@ -3,15 +3,14 @@
  * Provides common functionality: fetch with retry, token management, response formatting
  */
 
-import { bgFetch } from '@/src/utils/fetch';
+import { bgFetch, type FetchResult } from '@/src/utils/fetch';
 import { tokens, cache } from '@/src/utils/storage';
 import { Logger } from '@/src/utils/logger';
 import type { PlatformKey, PlatformConfig, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
-// Default retry config
-const DEFAULT_TIMEOUT = 10000;
-const DEFAULT_MAX_RETRIES = 3;
-const MAX_BACKOFF = 10000;
+const MAX_ATTEMPTS = 3;
+/** Just above the background's own 10s abort, so its error arrives first. */
+const REQUEST_TIMEOUT_MS = 12000;
 
 /**
  * Abstract base class for platform APIs
@@ -70,6 +69,25 @@ export abstract class BasePlatformAPI {
   /** Token storage key (defaults to config.key, mirrors can override) */
   protected tokenKey = '';
 
+  protected failedFetches = 0;
+
+  /**
+   * `search()` returns null both for "no such title" and "a request failed".
+   * Caching the latter as not-found hid real titles for an hour, so failures
+   * are reported as `undefined` and must not be cached.
+   */
+  async searchVerified(
+    sourcePlatform: PlatformKey,
+    sourceSlug: string,
+    titles: string[],
+    signal?: AbortSignal
+  ): Promise<SearchResult | null | undefined> {
+    const failedBefore = this.failedFetches;
+    const result = await this.search(sourcePlatform, sourceSlug, titles, signal);
+    if (result) return result;
+    return this.failedFetches > failedBefore ? undefined : null;
+  }
+
   /**
    * Get auth token for this platform
    */
@@ -84,68 +102,53 @@ export abstract class BasePlatformAPI {
     await tokens.set(this.config.key, token);
   }
 
+  protected async fetch<T = unknown>(url: string, options?: RequestInit): Promise<T | null> {
+    const result = await this.request<T>(url, options);
+    return result.ok ? result.data : null;
+  }
+
   /**
-   * Fetch with retry and exponential backoff
+   * Fetch with retries — only where a retry can help: no answer at all, 408,
+   * 429 or 5xx. A 403/404 answers the same on every attempt, and retrying them cost
+   * seconds per request (Senkuro behind a VPN, the com-x challenge).
    */
-  protected async fetch<T = unknown>(
-    url: string,
-    options?: RequestInit,
-    timeout: number = DEFAULT_TIMEOUT,
-    maxRetries: number = DEFAULT_MAX_RETRIES
-  ): Promise<T | null> {
+  protected async request<T = unknown>(url: string, options?: RequestInit): Promise<FetchResult<T>> {
     const context = this.config.key;
+    let result: FetchResult<T> = { ok: false };
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        Logger.debug(context, `Fetch attempt ${attempt + 1}/${maxRetries}`, url);
-
-        // Create abort controller for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-        try {
-          const result = await bgFetch<T>(url, {
-            ...options,
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          if (result !== null) {
-            Logger.debug(context, 'Fetch success', url);
-            return result;
-          }
-
-          // bgFetch returned null - likely an error
-          Logger.warn(context, `Fetch returned null`, url);
-        } catch (error) {
-          clearTimeout(timeoutId);
-
-          if (error instanceof Error && error.name === 'AbortError') {
-            Logger.warn(context, `Request timeout (${timeout}ms)`, url);
-          } else {
-            throw error;
-          }
-        }
-
-        // Backoff before retry
-        if (attempt < maxRetries - 1) {
-          const backoff = Math.min(1000 * Math.pow(2, attempt), MAX_BACKOFF);
-          Logger.info(context, `Retrying in ${backoff}ms...`);
-          await this.sleep(backoff);
-        }
-      } catch (error) {
-        Logger.error(context, `Fetch error`, error);
-
-        if (attempt < maxRetries - 1) {
-          const backoff = Math.min(1000 * Math.pow(2, attempt), MAX_BACKOFF);
-          await this.sleep(backoff);
-        }
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        const backoff = 1000 * 2 ** (attempt - 1);
+        Logger.info(context, `Retrying in ${backoff}ms...`);
+        await this.sleep(backoff);
       }
+
+      // An AbortSignal can't cross the message boundary to the background
+      // worker, so the timeout has to be enforced here — otherwise a hung
+      // request stalls the whole platform load forever.
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<'timeout'>((resolve) => {
+        timeoutId = setTimeout(() => resolve('timeout'), REQUEST_TIMEOUT_MS);
+      });
+      const outcome = await Promise.race([bgFetch<T>(url, options), timedOut]);
+      clearTimeout(timeoutId);
+
+      if (outcome === 'timeout') {
+        Logger.warn(context, `Request timeout (${REQUEST_TIMEOUT_MS}ms)`, url);
+        result = { ok: false };
+        continue;
+      }
+
+      result = outcome;
+      if (result.ok) return result;
+
+      const { status } = result;
+      if (status !== undefined && status !== 408 && status !== 429 && status < 500) break;
     }
 
-    Logger.error(context, `All ${maxRetries} attempts failed`, url);
-    return null;
+    Logger.error(context, 'Request failed', url);
+    this.failedFetches++;
+    return result;
   }
 
   /**

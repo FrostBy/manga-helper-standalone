@@ -5,9 +5,10 @@
  * ignores the v4 spelling, so dropping either one leaves the button dead on
  * sites running that version.
  */
+import { useEffect, useRef } from 'preact/hooks';
 import { t } from '@/src/utils';
 import type { PlatformKey } from '@/src/types';
-import { ChapterStats } from './ChapterStats';
+import { PlatformStats } from './PlatformStats';
 import { usePlatformItems } from './usePlatformItems';
 
 interface Props {
@@ -18,10 +19,16 @@ interface Props {
 
 export function BootstrapPlatformButton({ children, className = '', onRefresh }: Props) {
   const items = usePlatformItems(onRefresh);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // A DOM click, not Bootstrap's API: Bootstrap lives in the page's JS world,
+  // out of the content script's reach.
+  useEffect(() => buttonRef.current?.click(), []);
 
   return (
     <div class="dropdown">
       <button
+        ref={buttonRef}
         class={className}
         type="button"
         data-toggle="dropdown"
@@ -36,7 +43,7 @@ export function BootstrapPlatformButton({ children, className = '', onRefresh }:
             key={item.key}
             class="dropdown-item d-flex align-items-center"
             data-platform-key={item.key}
-            style={{ gap: '8px', padding: '4px 16px' }}
+            style={{ gap: '8px' }}
           >
             <a
               href={item.url}
@@ -48,16 +55,7 @@ export function BootstrapPlatformButton({ children, className = '', onRefresh }:
               }}
             >
               <span>{item.api.config.title}</span>
-              {item.isLoading ? (
-                <span>...</span>
-              ) : (
-                <ChapterStats
-                  total={item.chapter}
-                  read={item.lastChapterRead}
-                  hasMore={item.hasMore}
-                  className="platform-stats"
-                />
-              )}
+              <PlatformStats item={item} />
             </a>
             <i
               class="fa fa-fw fa-refresh"
