@@ -20,7 +20,14 @@ import '@/src/platforms/inkstory.net/api';
 import '@/src/platforms/com-x.life/api';
 
 export default defineContentScript({
-  matches: ['*://*.zazaza.me/*', '*://*.readmanga.io/*'],
+  matches: [
+    '*://*.zazaza.me/*',
+    '*://*.readmanga.io/*',
+    '*://*.readmanga.me/*',
+    '*://*.mintmanga.one/*',
+    '*://*.mintmanga.com/*',
+    '*://*.seimanga.me/*',
+  ],
   runAt: 'document_end',
 
   async main() {

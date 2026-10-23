@@ -179,6 +179,10 @@ const ALLOWED_FETCH_HOST_SUFFIXES = [
   'senkognito.com',
   'mangabuff.ru',
   'readmanga.io',
+  'readmanga.me',
+  'mintmanga.one',
+  'mintmanga.com',
+  'seimanga.me',
   'rmr.rocks',
   'zazaza.me',
   'one-way.work',
@@ -187,6 +191,7 @@ const ALLOWED_FETCH_HOST_SUFFIXES = [
   'inkstory.net',
   'manga.ovh',
   'static.inkstory.net',
+  'puremanga.me',
   'com-x.life',
   'github.io',
 ];
@@ -318,9 +323,20 @@ const REFERER_RULES: Array<{
   urlFilter: string;
   referer: string;
   resourceTypes?: chrome.declarativeNetRequest.ResourceType[];
+  /** Only the extension's own requests: the site's pages already send their own Referer. */
+  ownOnly?: boolean;
 }> = [
   { urlFilter: '||cover.imglib.info/*', referer: 'https://mangalib.me/', resourceTypes: [browser.declarativeNetRequest.ResourceType.IMAGE] },
   { urlFilter: '||api.cdnlibs.org/*', referer: 'https://mangalib.me/' },
+  // Grouple answers "NOT FOUND" (MintManga pages) or 403 (SeiManga covers) to a request without a Referer.
+  { urlFilter: '||mintmanga.one/*', referer: 'https://3.grouple.co/', ownOnly: true },
+  { urlFilter: '||mintmanga.com/*', referer: 'https://3.grouple.co/', ownOnly: true },
+  {
+    urlFilter: '||one-way.work/*',
+    referer: 'https://3.grouple.co/',
+    resourceTypes: [browser.declarativeNetRequest.ResourceType.IMAGE],
+    ownOnly: true,
+  },
 ];
 
 /**
@@ -357,6 +373,7 @@ async function setupRefererRules() {
           browser.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
           browser.declarativeNetRequest.ResourceType.OTHER,
         ],
+        ...(rule.ownOnly ? { initiatorDomains: [browser.runtime.id] } : {}),
       },
     }));
 

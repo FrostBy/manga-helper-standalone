@@ -32,8 +32,8 @@ const PLATFORMS: Record<string, { api: BasePlatformAPI; title: string; groups?: 
   mangalib: { api: mangalibAPI, title: 'MangaLib', groups: ['MangaLib', 'HentaiLib'] },
   senkuro: { api: senkuroAPI, title: 'Senkuro', groups: ['Senkuro', 'Senkognito'] },
   mangabuff: { api: mangabuffAPI, title: 'MangaBuff' },
-  readmanga: { api: readmangaAPI, title: 'ReadManga' },
-  inkstory: { api: inkstoryAPI, title: 'Inkstory' },
+  readmanga: { api: readmangaAPI, title: 'ReadManga', groups: ['ReadManga', 'MintManga', 'SeiManga'] },
+  inkstory: { api: inkstoryAPI, title: 'Inkstory', groups: ['Inkstory', 'PureManga'] },
   comx: { api: comxAPI, title: 'Com-x' },
 };
 
@@ -73,9 +73,9 @@ function App() {
         setTheme('senkuro');
       } else if (url.includes('mangabuff')) {
         setTheme('mangabuff');
-      } else if (url.includes('readmanga') || url.includes('mintmanga') || url.includes('zazaza.me')) {
+      } else if (url.includes('readmanga') || url.includes('mintmanga') || url.includes('seimanga') || url.includes('zazaza.me')) {
         setTheme('readmanga');
-      } else if (url.includes('inkstory') || url.includes('manga.ovh')) {
+      } else if (url.includes('inkstory') || url.includes('manga.ovh') || url.includes('puremanga')) {
         setTheme('inkstory');
       } else if (url.includes('com-x.life')) {
         setTheme('comx');

@@ -236,6 +236,7 @@ export async function handleSaveLink(
     return;
   }
 
+  await api.claimLink(url);
   const store = useMappingsStore.getState();
   await store.saveManualLink(platformKey, extractedSlug);
   await store.invalidateCache(platformKey, extractedSlug);

@@ -5,16 +5,34 @@
  * server renders for the logged-in user.
  */
 
-import { BasePlatformAPI } from './base';
+import { BasePlatformAPI, type QueryItem } from './base';
 import { Logger } from '@/src/utils/logger';
 import { userProgress } from '@/src/utils/storage';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import { titlesMatch } from '@/src/utils/manga';
+import { currentHost, setTitleChain, titleChain } from '@/src/utils/mirrors';
+import type { HostPool } from '@/src/utils/hostPool';
 import { readingStats, parseBookmarkIds, type InkstoryChapter } from './inkstoryProgress';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
-const BASE_URL = 'https://inkstory.net';
 const API_URL = 'https://api.inkstory.net/v2';
+
+type InkChain = 'manga' | 'hentai';
+
+const SITE_POOLS: Record<InkChain, HostPool> = {
+  manga: { id: 'inkstory:manga', hosts: ['https://inkstory.net'] },
+  hentai: { id: 'inkstory:hentai', hosts: ['https://v1.puremanga.me'] },
+};
+
+/** One API serves both sites; the service name picks the catalog — a PureManga book 404s without it. */
+const SERVICES: Record<InkChain, string> = { manga: 'inkstory', hentai: 'puremanga.me' };
+
+/** Auto-linking prefers the main catalog when a title is on both. */
+const CHAIN_ORDER: InkChain[] = ['manga', 'hentai'];
+
+const GROUPS: Record<InkChain, string> = { manga: 'Inkstory', hentai: 'PureManga' };
+
+const chainOfTitle = (slug: string): InkChain => (titleChain('inkstory', slug) === 'hentai' ? 'hentai' : 'manga');
 
 /**
  * Inkstory book DTO
@@ -69,12 +87,15 @@ export class InkstoryAPI extends BasePlatformAPI {
     title: 'Inkstory',
   };
 
-  link(slug: string): string {
-    return `${BASE_URL}/content/${slug}/chapters`;
+  protected sitePools = SITE_POOLS;
+
+  link(slug: string, chain?: string): string {
+    const pool = SITE_POOLS[(chain ?? chainOfTitle(slug)) as InkChain] ?? SITE_POOLS.manga;
+    return `${currentHost(pool)}/content/${slug}/chapters`;
   }
 
   getSlugFromURL(url: string): string | null {
-    return parseSlugFromUrl(url, ['inkstory.net', 'manga.ovh'], /^\/content\/([^/?#]+)/);
+    return parseSlugFromUrl(url, ['inkstory.net', 'manga.ovh', 'puremanga.me'], /^\/content\/([^/?#]+)/);
   }
 
   /**
@@ -91,12 +112,14 @@ export class InkstoryAPI extends BasePlatformAPI {
     for (const title of titles) {
       if (signal?.aborted) return null;
 
-      const slug = await this.searchByTitle(title, titles);
-      Logger.debug(this.config.key, 'Search result for title', { title, found: slug });
+      const found = await this.searchByTitle(title, titles);
+      Logger.debug(this.config.key, 'Search result for title', { title, found });
 
-      if (slug) {
+      if (found) {
         if (signal?.aborted) return null;
 
+        const { slug } = found;
+        await setTitleChain('inkstory', slug, found.chain);
         const data = await this.getMangaData(slug);
         if (data) {
           Logger.debug(this.config.key, 'Match found', slug);
@@ -115,27 +138,32 @@ export class InkstoryAPI extends BasePlatformAPI {
   /**
    * Search by single title with title matching
    */
-  private async searchByTitle(title: string, allTitles: string[]): Promise<string | null> {
-    const url = `${API_URL}/books?search=${encodeURIComponent(title)}&ignoreUserScopedContentStatus=true&serviceName=inkstory`;
-    const response = await this.fetch<InkstorySearchResult>(url);
-
-    // API returns array directly
-    if (!response || !Array.isArray(response) || response.length === 0) {
-      return null;
+  private async searchByTitle(title: string, allTitles: string[]): Promise<{ slug: string; chain: InkChain } | null> {
+    for (const chain of CHAIN_ORDER) {
+      const response = await this.searchBooks(title, chain);
+      if (!Array.isArray(response)) continue;
+      const matched = response.find((book) =>
+        titlesMatch([...(book.altNames ?? []).map((alt) => alt.name), ...Object.values(book.name ?? {})], allTitles)
+      );
+      if (matched?.slug) return { slug: matched.slug, chain };
     }
+    return null;
+  }
 
-    const matched = response.find((book) =>
-      titlesMatch(
-        [...(book.altNames ?? []).map((alt) => alt.name), ...Object.values(book.name ?? {})],
-        allTitles
-      )
+  private searchBooks(query: string, chain: InkChain): Promise<InkstorySearchResult | null> {
+    return this.fetch<InkstorySearchResult>(
+      `${API_URL}/books?search=${encodeURIComponent(query)}&ignoreUserScopedContentStatus=true&serviceName=${SERVICES[chain]}`
     );
+  }
 
-    return matched?.slug ?? null;
+  private fetchBook(slug: string): Promise<InkstorySearchItem | null> {
+    return this.fetch<InkstorySearchItem>(`${API_URL}/books/${slug}`, {
+      headers: { 'x-service-name': SERVICES[chainOfTitle(slug)] },
+    });
   }
 
   private async fetchChapters(slug: string): Promise<InkstoryChapter[] | null> {
-    const book = await this.fetch<InkstorySearchItem>(`${API_URL}/books/${slug}`);
+    const book = await this.fetchBook(slug);
     if (!book?.id) return null;
     const chapters = await this.fetch<InkstoryChapter[]>(`${API_URL}/chapters?bookId=${book.id}`);
     return Array.isArray(chapters) ? chapters : null;
@@ -144,7 +172,9 @@ export class InkstoryAPI extends BasePlatformAPI {
   async getMangaData(slug: string): Promise<{ chapter: number; lastChapterRead: number } | null> {
     const [chapters, html] = await Promise.all([
       this.fetchChapters(slug),
-      this.fetch<string>(`${BASE_URL}/content/${slug}`, { withCredentials: true } as RequestInit),
+      this.fetch<string>(`${currentHost(SITE_POOLS[chainOfTitle(slug)])}/content/${slug}`, {
+        withCredentials: true,
+      } as RequestInit),
     ]);
     if (!chapters || typeof html !== 'string') {
       // A malformed answer is a failure too; a request that failed is already
@@ -167,7 +197,7 @@ export class InkstoryAPI extends BasePlatformAPI {
   }
 
   async getManga(slug: string): Promise<Manga | null> {
-    const book = await this.fetch<InkstorySearchItem>(`${API_URL}/books/${slug}`);
+    const book = await this.fetchBook(slug);
     const { ru, en, original } = book?.name ?? {};
     const [name, ...otherNames] = [ru, en, original, ...(book?.altNames ?? []).map((alt) => alt.name)]
       .filter((title): title is string => !!title);
@@ -199,18 +229,23 @@ export class InkstoryAPI extends BasePlatformAPI {
   /**
    * Simple search by query - for popup use
    */
-  async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }> | null> {
-    const url = `${API_URL}/books?search=${encodeURIComponent(query)}&ignoreUserScopedContentStatus=true&serviceName=inkstory`;
-    const response = await this.fetch<InkstorySearchResult>(url);
+  async searchByQuery(query: string): Promise<QueryItem[] | null> {
+    const found = await Promise.all(
+      CHAIN_ORDER.map(async (chain) => ({ chain, books: await this.searchBooks(query, chain) }))
+    );
+    if (found.every(({ books }) => !books)) return null;
 
-    if (!response) return null;
-    if (!Array.isArray(response)) return [];
-
-    return response.slice(0, 5).map((item) => ({
-      title: item.name?.ru || item.name?.en || Object.values(item.name || {})[0] || item.slug || '',
-      slug: item.slug || '',
-      image: item.poster || undefined,
-    }));
+    return found.flatMap(({ chain, books }): QueryItem[] => {
+      if (!books) return [{ failedGroup: GROUPS[chain] }];
+      if (!Array.isArray(books)) return [];
+      return books.map((item) => ({
+        title: item.name?.ru || item.name?.en || Object.values(item.name || {})[0] || item.slug || '',
+        slug: item.slug || '',
+        image: item.poster || undefined,
+        chain,
+        group: GROUPS[chain],
+      }));
+    });
   }
 
   /**

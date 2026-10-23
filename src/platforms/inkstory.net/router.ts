@@ -1,6 +1,7 @@
 import { BaseRouter } from '@/src/router';
 import type { RoutesConfig } from '@/src/router';
 import type { PlatformKey } from '@/src/types';
+import { inkstoryAPI } from '@/src/api';
 import { MangaPage, ChapterPage } from './pages';
 
 export class InkstoryRouter extends BaseRouter {
@@ -21,5 +22,6 @@ export class InkstoryRouter extends BaseRouter {
 
   protected async preInit(): Promise<void> {
     document.body.classList.add('inkstory');
+    await inkstoryAPI.claimPage(window.location.href);
   }
 }

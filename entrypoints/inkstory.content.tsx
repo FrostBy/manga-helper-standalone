@@ -20,7 +20,7 @@ import '@/src/platforms/inkstory.net/api';
 import '@/src/platforms/com-x.life/api';
 
 export default defineContentScript({
-  matches: ['*://*.inkstory.net/*', '*://*.manga.ovh/*'],
+  matches: ['*://*.inkstory.net/*', '*://*.manga.ovh/*', '*://*.puremanga.me/*'],
   runAt: 'document_start',
 
   main() {

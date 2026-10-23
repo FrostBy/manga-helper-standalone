@@ -19,9 +19,10 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 - **Mark as unavailable** — Explicitly mark a platform as unavailable (e.g. blocked by the copyright holder); it moves to the bottom of the list and is skipped by auto-refresh
 - **Chapter comparison** — Highlights platforms that have more chapters available; licensed MangaLib titles count all chapters, not just the open preview
 - **Load status** — A platform that failed to load is marked with ⚠ instead of showing 0; numbers past their cache lifetime are dimmed until refreshed
-- **Mirrors** — If a site or its API is blocked, MangaLib and Senkuro requests and links switch to a working mirror; refresh starts from the main host again
+- **Sister sites** — Each platform covers its sister catalogs: HentaiLib, Senkognito, MintManga and SeiManga (ReadManga), PureManga (Inkstory); a title's link, counts and progress come from the site it lives on, a pasted link tells the site
+- **Mirrors** — If a site or its API is blocked, MangaLib, Senkuro, ReadManga and MintManga requests and links switch to a working mirror; refresh starts from the main host again
 - **Native look** — The button, dropdown and loading spinner follow each site's own style; the dropdown opens when a manga page loads
-- **Popup search** — Search manga across all platforms from the extension popup with cover thumbnails; results are grouped by site (MangaLib / HentaiLib, Senkuro / Senkognito)
+- **Popup search** — Search manga across all platforms from the extension popup with cover thumbnails; results are grouped by site (MangaLib / HentaiLib, Senkuro / Senkognito, ReadManga / MintManga / SeiManga, Inkstory / PureManga)
 - **Debug logging** — Configurable log level (DEBUG/INFO/WARN/ERROR/OFF) in popup settings
 - **Caching** — Results are cached to minimize API requests
 
@@ -29,11 +30,11 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 
 | Platform | Domain | Status |
 |----------|--------|--------|
-| MangaLib | mangalib.me, mangalib.org, hentailib.me | ✅ Full support |
-| Senkuro | senkuro.com, senkuro.me, senkognito.com | ✅ Full support |
+| MangaLib + HentaiLib | mangalib.me, mangalib.org, hentailib.me | ✅ Full support |
+| Senkuro + Senkognito | senkuro.com, senkuro.me, senkognito.com | ✅ Full support |
 | MangaBuff | mangabuff.ru | ✅ Full support |
-| ReadManga | readmanga.io, zazaza.me | ✅ Full support |
-| Inkstory | inkstory.net, manga.ovh | ✅ Full support |
+| ReadManga + MintManga + SeiManga | zazaza.me, readmanga.me, mintmanga.one, mintmanga.com, seimanga.me | ✅ Full support |
+| Inkstory + PureManga | inkstory.net, puremanga.me | ✅ Full support |
 | Com-x | com-x.life | ✅ Full support |
 
 ## Installation
@@ -74,6 +75,9 @@ pnpm typecheck
 
 # Self-checks
 pnpm test
+
+# Set the version to today's CalVer (YYYY.M.D.N, N = releases already tagged today)
+pnpm bump
 ```
 
 ## Usage

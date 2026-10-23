@@ -34,6 +34,15 @@ export interface QueryFailure {
 
 export type QueryItem = QueryResult | QueryFailure;
 
+export interface PoolFlags {
+  /** For a lookup by slug a 404 is the host saying "no such title"; for GraphQL or search it means a broken host. */
+  notFoundIsAnswer?: boolean;
+  /** Whether a 200 is the real answer: a parked domain or a challenge page also answers 200 with HTML. */
+  accept?: (data: unknown) => boolean;
+}
+
+const isNotHtml = (data: unknown): boolean => typeof data !== 'string';
+
 const MAX_ATTEMPTS = 3;
 /** Just above the background's own 10s abort, so its error arrives first. */
 const REQUEST_TIMEOUT_MS = 12000;
@@ -191,13 +200,22 @@ export abstract class BasePlatformAPI {
    * chain it lives on — no probe and no catalog lookup needed.
    */
   async claimPage(url: string): Promise<void> {
-    const { origin } = new URL(url);
-    const found = Object.entries(this.sitePools).find(([, pool]) => pool.hosts.includes(origin));
-    if (!found) return;
-    const [chain, pool] = found;
-    await rememberHost(pool, origin);
+    const chain = this.chainAt(url);
+    if (!chain) return;
+    await rememberHost(this.sitePools[chain], new URL(url).origin);
+    await this.claimLink(url);
+  }
+
+  /** A pasted MintManga link is a MintManga title: nothing else would tell, its slug 404s on ReadManga. */
+  async claimLink(url: string): Promise<void> {
+    const chain = this.chainAt(url);
     const slug = this.getSlugFromURL(url);
-    if (slug) await setTitleChain(this.config.key, slug, chain);
+    if (chain && slug) await setTitleChain(this.config.key, slug, chain);
+  }
+
+  private chainAt(url: string): string | undefined {
+    const { origin } = new URL(url);
+    return Object.keys(this.sitePools).find((chain) => this.sitePools[chain].hosts.includes(origin));
   }
 
   /**
@@ -205,15 +223,12 @@ export abstract class BasePlatformAPI {
    * geo-blocked host only wastes the time another one needs. A pass that met
    * 429/5xx is repeated after a pause instead: Lib's hosts share one rate limit,
    * so the next host can't help with those.
-   *
-   * `notFoundIsAnswer` — for a lookup by slug a 404 is the host saying "no such
-   * title"; for GraphQL or search it means a broken host, and the pool moves on.
    */
   protected async requestPool<T = unknown>(
     pool: HostPool,
     path: string,
     options?: RequestInit,
-    { notFoundIsAnswer = false } = {}
+    { notFoundIsAnswer = false, accept = isNotHtml }: PoolFlags = {}
   ): Promise<FetchResult<T>> {
     let result: FetchResult<T> = { ok: false };
     for (let pass = 0; pass < MAX_ATTEMPTS; pass++) {
@@ -222,8 +237,7 @@ export abstract class BasePlatformAPI {
 
       for (const host of await hostsFor(pool)) {
         result = await this.attempt<T>(host + path, options);
-        // A parked domain or a challenge page answers 200 with HTML.
-        if (result.ok && typeof result.data === 'string') result = { ok: false };
+        if (result.ok && !accept(result.data)) result = { ok: false };
 
         const { status } = result.ok ? { status: 200 } : result;
         const answered =
@@ -247,7 +261,7 @@ export abstract class BasePlatformAPI {
     pool: HostPool,
     path: string,
     options?: RequestInit,
-    flags?: { notFoundIsAnswer?: boolean }
+    flags?: PoolFlags
   ): Promise<T | null> {
     const result = await this.requestPool<T>(pool, path, options, flags);
     return result.ok ? result.data : null;

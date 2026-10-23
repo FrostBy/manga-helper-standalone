@@ -1,16 +1,38 @@
 /**
- * ReadManga API (a.zazaza.me)
- * Uses REST API + HTML parsing
+ * ReadManga API — Grouple sites on one engine: ReadManga, MintManga (18+), SeiManga.
+ * Title pages are HTML; the bookmark comes from the shared Grouple API.
  */
 
-import { BasePlatformAPI } from './base';
+import { BasePlatformAPI, type QueryItem } from './base';
 import { readingStats, type ChapterRow } from './readmangaChapters';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import { titlesMatch } from '@/src/utils/manga';
+import { currentHost, setTitleChain, titleChain } from '@/src/utils/mirrors';
+import type { HostPool } from '@/src/utils/hostPool';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
-const BASE_URL = 'https://a.zazaza.me';
+type GroupleChain = 'manga' | 'hentai' | 'seinen';
+
+/** Fallback hosts carry fewer titles: a title missing there is a failure, not "not found". */
+const SITE_POOLS: Record<GroupleChain, HostPool> = {
+  manga: { id: 'readmanga:manga', hosts: ['https://a.zazaza.me', 'https://readmanga.me'] },
+  hentai: { id: 'readmanga:hentai', hosts: ['https://2.mintmanga.one', 'https://1.mintmanga.com'] },
+  seinen: { id: 'readmanga:seinen', hosts: ['https://1.seimanga.me'] },
+};
+
+/** Auto-linking prefers the main catalog when a title is on several sites. */
+const CHAIN_ORDER: GroupleChain[] = ['manga', 'hentai', 'seinen'];
+
+const GROUPS: Record<GroupleChain, string> = { manga: 'ReadManga', hentai: 'MintManga', seinen: 'SeiManga' };
+
+/** A parked domain or a block page answers 200 too; every Grouple page declares its site. */
+const isGrouplePage = (data: unknown): boolean => typeof data === 'string' && data.includes('RM_site_id');
+
+const chainOfTitle = (slug: string): GroupleChain => {
+  const chain = titleChain('readmanga', slug);
+  return chain in SITE_POOLS ? (chain as GroupleChain) : 'manga';
+};
 
 interface ReadMangaMeta {
   externalId: string;
@@ -55,10 +77,21 @@ interface ReadMangaSearchResult {
 }
 
 /**
- * Suggestions span the whole federation; other sites' entries carry absolute
- * links (seimanga, mintmanga) that are no slug here and 404 as one.
+ * Suggestions span the whole federation: own titles have relative links, other
+ * sites absolute ones. Sites we don't cover (SelfManga, LibreBook) are dropped —
+ * their slug would 404 on every pool.
  */
-const isOwnSuggestion = (s: ReadMangaSearchSuggestion): boolean => s.link?.startsWith('/') ?? false;
+function titleOfSuggestion(s: ReadMangaSearchSuggestion): { slug: string; chain: GroupleChain } | null {
+  if (!s.link) return null;
+  if (s.link.startsWith('/')) return { slug: s.link.slice(1), chain: 'manga' };
+  try {
+    const { origin, pathname } = new URL(s.link);
+    const chain = CHAIN_ORDER.find((c) => SITE_POOLS[c].hosts.includes(origin));
+    return chain ? { slug: pathname.slice(1), chain } : null;
+  } catch {
+    return null;
+  }
+}
 
 interface ServerVariables {
   siteId?: string;
@@ -75,12 +108,19 @@ export class ReadMangaAPI extends BasePlatformAPI {
     title: 'ReadManga',
   };
 
-  link(slug: string): string {
-    return `${BASE_URL}/${slug}#chapters-list`;
+  protected sitePools = SITE_POOLS;
+
+  link(slug: string, chain?: string): string {
+    const pool = SITE_POOLS[(chain ?? chainOfTitle(slug)) as GroupleChain] ?? SITE_POOLS.manga;
+    return `${currentHost(pool)}/${slug}#chapters-list`;
   }
 
   getSlugFromURL(url: string): string | null {
-    return parseSlugFromUrl(url, ['zazaza.me', 'readmanga.io', 'mintmanga.com'], /^\/([^/?#]+)/);
+    return parseSlugFromUrl(
+      url,
+      ['zazaza.me', 'readmanga.io', 'readmanga.me', 'mintmanga.com', 'mintmanga.one', 'seimanga.me'],
+      /^\/([^/?#]+)/
+    );
   }
 
   /**
@@ -97,12 +137,14 @@ export class ReadMangaAPI extends BasePlatformAPI {
     for (const title of titles) {
       if (signal?.aborted) return null;
 
-      const slug = await this.searchByTitle(title, titles);
-      Logger.debug(this.config.key, 'Search result for title', { title, found: slug });
+      const found = await this.searchByTitle(title, titles);
+      Logger.debug(this.config.key, 'Search result for title', { title, found });
 
-      if (slug) {
+      if (found) {
         if (signal?.aborted) return null;
 
+        const { slug } = found;
+        await setTitleChain('readmanga', slug, found.chain);
         const data = await this.getMangaData(slug);
         if (data) {
           Logger.debug(this.config.key, 'Match found', slug);
@@ -121,24 +163,28 @@ export class ReadMangaAPI extends BasePlatformAPI {
   /**
    * Search by single title with title matching
    */
-  private async searchByTitle(title: string, allTitles: string[]): Promise<string | null> {
-    const url = new URL(`${BASE_URL}/search/suggestion`);
-    url.searchParams.set('query', title);
-    url.searchParams.append('types[]', 'CREATION');
-    url.searchParams.append('types[]', 'FEDERATION_MANGA');
+  private async searchByTitle(
+    title: string,
+    allTitles: string[]
+  ): Promise<{ slug: string; chain: GroupleChain } | null> {
+    const matches = ((await this.suggestions(title)) ?? []).flatMap((s) => {
+      const found = titleOfSuggestion(s);
+      return found && titlesMatch([s.value, ...(s.names ?? [])], allTitles) ? [found] : [];
+    });
+    for (const chain of CHAIN_ORDER) {
+      const match = matches.find((m) => m.chain === chain);
+      if (match) return match;
+    }
+    return null;
+  }
 
-    const response = await this.fetch<ReadMangaSearchResult>(url.toString());
-
-    const suggestions = response?.suggestions;
-    if (!suggestions?.length) return null;
-
-    const matched = suggestions.filter(isOwnSuggestion).find((s) =>
-      titlesMatch([s.value, ...(s.names ?? [])], allTitles)
-    );
-
-    // Extract slug from link (e.g. "/slug" -> "slug")
-    const link = matched?.link;
-    return link ? link.replace('/', '') : null;
+  /** One search on the main site covers MintManga and SeiManga too. */
+  private async suggestions(query: string): Promise<ReadMangaSearchSuggestion[] | null> {
+    const params = new URLSearchParams({ query });
+    params.append('types[]', 'CREATION');
+    params.append('types[]', 'FEDERATION_MANGA');
+    const response = await this.fetchPool<ReadMangaSearchResult>(SITE_POOLS.manga, `/search/suggestion?${params}`);
+    return response ? (response.suggestions ?? []) : null;
   }
 
   private parseChapterRows(doc: Document): ChapterRow[] {
@@ -148,9 +194,13 @@ export class ReadMangaAPI extends BasePlatformAPI {
     }));
   }
 
+  private fetchTitlePage(slug: string): Promise<string | null> {
+    return this.fetchPool<string>(SITE_POOLS[chainOfTitle(slug)], `/${slug}`, undefined, { accept: isGrouplePage });
+  }
+
   private async getMangaData(slug: string): Promise<{ chapter: number; lastChapterRead: number } | null> {
-    const html = await this.fetch<string>(`${BASE_URL}/${slug}#chapters-list`);
-    if (!html || typeof html !== 'string') return null;
+    const html = await this.fetchTitlePage(slug);
+    if (!html) return null;
 
     try {
       const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -291,10 +341,8 @@ export class ReadMangaAPI extends BasePlatformAPI {
    * Get manga metadata (with fetch)
    */
   async getManga(slug: string): Promise<Manga | null> {
-    const url = `${BASE_URL}/${slug}`;
-    const html = await this.fetch<string>(url);
-    if (!html || typeof html !== 'string') return null;
-    return this.parseMangaHTML(html);
+    const html = await this.fetchTitlePage(slug);
+    return html ? this.parseMangaHTML(html) : null;
   }
 
   /**
@@ -379,20 +427,18 @@ export class ReadMangaAPI extends BasePlatformAPI {
   /**
    * Simple search by query - for popup use
    */
-  async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }> | null> {
-    const url = new URL(`${BASE_URL}/search/suggestion`);
-    url.searchParams.set('query', query);
-    url.searchParams.append('types[]', 'CREATION');
-    url.searchParams.append('types[]', 'FEDERATION_MANGA');
+  async searchByQuery(query: string): Promise<QueryItem[] | null> {
+    const suggestions = await this.suggestions(query);
+    if (!suggestions) return null;
 
-    const response = await this.fetch<ReadMangaSearchResult>(url.toString());
-    if (!response) return null;
-
-    return (response.suggestions ?? []).filter(isOwnSuggestion).slice(0, 5).map((s) => ({
-      title: s.value || '',
-      slug: s.link?.replace(/^\//, '') || '',
-      image: s.thumbnail || undefined,
-    }));
+    const results = suggestions.flatMap((s) => {
+      const found = titleOfSuggestion(s);
+      return found
+        ? [{ title: s.value || '', slug: found.slug, image: s.thumbnail || undefined, chain: found.chain, group: GROUPS[found.chain] }]
+        : [];
+    });
+    new Set(results.map((r) => r.chain)).forEach((chain) => this.probeSiteHost(SITE_POOLS[chain]));
+    return results;
   }
 
   /**
