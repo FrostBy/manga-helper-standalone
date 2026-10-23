@@ -28,7 +28,7 @@ export class ChapterPage extends BasePage {
   private async invalidateCache(): Promise<void> {
     const slug = this.getSlugFromUrl();
     if (!slug) return;
-    await cache.delete('readmanga', slug);
+    await cache.delete(this.context.currentPlatform, slug);
   }
 
   private getSlugFromUrl(): string {

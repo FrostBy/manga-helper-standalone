@@ -1,0 +1,84 @@
+/* Manga-chan has no menu component: a plain light box in the site's colours (light theme only) */
+$mangachan-link: rgb(37, 143, 184);
+$mangachan-panel: #f2f4f6;
+
+.mangachan-dropdown {
+  min-width: 280px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #d7dde3;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  font: 13px/18px Arial, Helvetica, sans-serif;
+  color: #333;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+
+    &:hover {
+      background: $mangachan-panel;
+    }
+  }
+
+  .menu-item__text {
+    flex: 1;
+    min-width: 0;
+
+    a {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: inherit;
+      text-decoration: none;
+    }
+  }
+
+  .platform-stats {
+    margin-left: auto;
+    font-size: 12px;
+    opacity: 0.7;
+
+    &.has-more {
+      color: $mangachan-link;
+      opacity: 1;
+    }
+  }
+
+  .refresh-link,
+  .edit-link {
+    display: flex;
+    padding: 2px;
+    color: $mangachan-link;
+    opacity: 0.6;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+
+.mangachan-has-new {
+  outline: 2px solid #22c55e;
+  outline-offset: 2px;
+}
+
+/* The site has only DLE's text overlay, no spinner: a ring in its link colour */
+.mangachan-loader {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid $mangachan-link;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: rotate 0.8s linear infinite;
+}

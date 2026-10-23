@@ -253,3 +253,15 @@
   margin-left: 4px;
   cursor: help;
 }
+
+/* Inline SVG icons in place of Font Awesome (BootstrapPlatformButton svgIcons) */
+.mh-svg-icon {
+  display: inline-flex;
+  width: 1em;
+  height: 1em;
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+}

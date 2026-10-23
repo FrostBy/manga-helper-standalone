@@ -2,14 +2,15 @@
  * Senkuro API — GraphQL: title matching by a persisted search hash, popup search and titles by plain queries
  */
 
-import { BasePlatformAPI, type QueryResult } from './base';
+import { BasePlatformAPI, type Candidate, type QueryResult } from './base';
 import { chainOfApplication, type SenkuroChain } from './senkuroChain';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import { titlesMatch } from '@/src/utils/manga';
+import { yearIn, type TitleProfile } from '@/src/utils/matchScore';
 import { currentHost, setTitleChain, titleChain } from '@/src/utils/mirrors';
 import type { HostPool } from '@/src/utils/hostPool';
-import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
+import type { PlatformConfig, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 /** One API for the whole ecosystem: any host finds and serves every title. */
 const API_POOL: HostPool = {
@@ -29,13 +30,15 @@ const persisted = (operationName: string, variables: object, sha256Hash: string)
 });
 
 const SEARCH_QUERY_HASH = 'e64937b4fc9c921c2141f2995473161bed921c75855c5de934752392175936bc';
+const HITS_TTL = 60 * 1000;
 
 /**
  * A plain query, not a persisted hash: the persisted document never selected
  * `applicationId`, and a newer hash would follow the site's deploys.
  */
 const MANGA_QUERY = `query($slug: String!) { manga(slug: $slug) {
-  slug applicationId chapters
+  slug applicationId chapters malId releasedOn
+  mainStaff { person { name } }
   alternativeNames { content }
   branches { primaryTeamActivities { ranges { end } } }
   viewerBookmark { number }
@@ -82,6 +85,9 @@ interface SenkuroMangaResponse {
         number?: string | number;
       };
       applicationId?: string;
+      malId?: number | null;
+      releasedOn?: string | null;
+      mainStaff?: Array<{ person?: { name?: string } | null }>;
       [key: string]: unknown;
     };
   };
@@ -136,122 +142,64 @@ export class SenkuroAPI extends BasePlatformAPI {
     );
   }
 
-  /**
-   * Search for manga by titles
-   */
-  async search(
-    sourcePlatform: PlatformKey,
-    sourceSlug: string,
-    titles: string[],
-    signal?: AbortSignal
-  ): Promise<SearchResult | null> {
-    if (signal?.aborted) return null;
-
-    Logger.debug(this.config.key, 'Search started', { titles });
-
-    // Try searching with each title until we get results
-    let matchedSlug: string | null = null;
-    let candidates: string[] = [];
-
-    for (const title of titles) {
-      if (signal?.aborted) return null;
-
-      const result = await this.searchByTitle(title, titles);
-      Logger.debug(this.config.key, 'Search result for title', { title, result });
-
-      if (result.slug) {
-        matchedSlug = result.slug;
-        candidates = result.candidates;
-        break;
-      }
-      if (result.candidates.length > 0 && candidates.length === 0) {
-        candidates = result.candidates;
-      }
-    }
-
-    Logger.debug(this.config.key, 'Final search results', { matchedSlug, candidates });
-
-    if (signal?.aborted) return null;
-
-    // If exact match found in search, use it directly (already verified by searchByTitle)
-    if (matchedSlug) {
-      const mangaData = await this.getMangaData(matchedSlug);
-      if (mangaData) {
-        Logger.debug(this.config.key, 'Using exact match', matchedSlug);
-        await this.cacheResult(matchedSlug, mangaData.chapter, mangaData.lastChapterRead);
-        return this.prepareResponse(matchedSlug, mangaData.chapter, mangaData.lastChapterRead);
-      }
-    }
-
-    if (signal?.aborted) return null;
-
-    // Verify candidates via getManga (checks alternativeNames) - only when no exact match
-    for (const entitySlug of candidates) {
-      if (signal?.aborted) return null;
-
-      const mangaData = await this.getMangaData(entitySlug);
-      if (!mangaData) continue;
-
-      Logger.debug(this.config.key, 'Checking alternativeNames', {
-        entitySlug,
-        alternativeNames: mangaData.alternativeNames?.map(n => n.content),
-        titles,
-      });
-
-      // Check if any alternativeNames match our titles
-      const hasMatch = titlesMatch(
-        mangaData.alternativeNames?.map((name) => name.content) ?? [],
-        titles
-      );
-
-      if (hasMatch) {
-        Logger.debug(this.config.key, 'Match found in alternativeNames', entitySlug);
-        await this.cacheResult(entitySlug, mangaData.chapter, mangaData.lastChapterRead);
-        return this.prepareResponse(entitySlug, mangaData.chapter, mangaData.lastChapterRead);
-      }
-    }
-
-    if (signal?.aborted) return null;
-
-    Logger.debug(this.config.key, 'No match found');
-    return null;
+  /** Exact name matches of one query; the hits stay for the alt-name pass. */
+  protected async candidatesFor(query: string, titles: string[]): Promise<Candidate[] | null> {
+    const edges = await this.searchHits(query);
+    if (!edges) return null;
+    return edges
+      .filter(({ node }) => node?.slug && titlesMatch([node.originalName, ...(node.titles?.map((t) => t.content) ?? [])], titles))
+      .map(({ node }) => ({ slug: node!.slug! }));
   }
 
-  /**
-   * Search by single title - returns slug and all candidates
-   */
-  private async searchByTitle(
-    title: string,
-    allTitles: string[]
-  ): Promise<{ slug: string | null; candidates: string[] }> {
-    const response = await this.graphql<SenkuroSearchResponse>(
-      persisted('search', { query: title, type: 'MANGA' }, SEARCH_QUERY_HASH)
+  /** Search payloads lack alt names: the first non-empty hit list is checked title by title. */
+  protected async fallbackCandidates(titles: string[], signal?: AbortSignal): Promise<Candidate[]> {
+    for (const title of titles) {
+      const slugs = ((await this.searchHits(title)) ?? []).map(({ node }) => node?.slug).filter((s): s is string => !!s);
+      if (slugs.length === 0) continue;
+      const matched: Candidate[] = [];
+      for (const slug of slugs) {
+        if (signal?.aborted) return [];
+        const manga = await this.fetchManga(slug);
+        if (manga && titlesMatch(manga.alternativeNames?.map((n) => n.content) ?? [], titles)) matched.push({ slug });
+      }
+      return matched;
+    }
+    return [];
+  }
+
+  private hits = new Map<string, { at: number; hits: Promise<Array<{ node?: SenkuroSearchNode }> | null> }>();
+
+  /** The alt-name pass reads the hit lists the queries just got — for a minute, not the tab's life: the catalog grows. */
+  private searchHits(query: string): Promise<Array<{ node?: SenkuroSearchNode }> | null> {
+    const known = this.hits.get(query);
+    if (known && Date.now() - known.at < HITS_TTL) return known.hits;
+    const hits = this.graphql<SenkuroSearchResponse>(persisted('search', { query, type: 'MANGA' }, SEARCH_QUERY_HASH)).then(
+      (response) => {
+        if (!response) return null;
+        const edges = response.data?.search?.edges;
+        // A rejected query (a stale persisted hash) answers with errors and no data: a failure, not "nothing found".
+        if (!edges) {
+          this.failedFetches++;
+          return null;
+        }
+        return edges;
+      }
     );
+    this.hits.set(query, { at: Date.now(), hits });
+    hits.then(
+      (found) => found || this.hits.delete(query),
+      () => this.hits.delete(query)
+    );
+    return hits;
+  }
 
-    const edges = response?.data?.search?.edges;
-    if (!edges?.length) return { slug: null, candidates: [] };
-
-    // Collect all candidate slugs first (before matching)
-    const candidates: string[] = edges
-      .map((e) => e.node?.slug)
-      .filter((s): s is string => Boolean(s));
-
-    // Try to find exact title match
-    const matchedEntity = edges.find((entity) => {
-      const node = entity.node;
-      if (!node?.slug) return false;
-
-      const entityTitles = [
-        node.originalName,  // Direct string from search response
-        ...(node.titles?.map((t) => t.content) ?? []),
-      ].filter(Boolean) as string[];
-
-      return titlesMatch(entityTitles, allTitles);
-    });
-
+  async getProfile(slug: string): Promise<TitleProfile | null> {
+    const manga = await this.fetchManga(slug);
+    if (!manga) return null;
     return {
-      slug: matchedEntity?.node?.slug ?? null,
-      candidates,
+      year: yearIn(manga.releasedOn),
+      authors: (manga.mainStaff ?? []).map((staff) => staff.person?.name ?? '').filter(Boolean),
+      ids: { mal: manga.malId ? String(manga.malId) : undefined },
     };
   }
 

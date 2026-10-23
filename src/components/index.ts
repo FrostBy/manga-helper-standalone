@@ -3,6 +3,7 @@
  */
 export { PlatformButton } from './PlatformButton';
 export { PlatformDropdown } from './PlatformDropdown';
+export { AnchoredPlatformButton } from './AnchoredPlatformButton';
 export { BootstrapPlatformButton } from './BootstrapPlatformButton';
 export { ChapterStats } from './ChapterStats';
 export { EditModal } from './EditModal';

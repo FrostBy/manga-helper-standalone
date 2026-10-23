@@ -6,6 +6,8 @@
 import { bgFetch, type FetchResult } from '@/src/utils/fetch';
 import { tokens, cache } from '@/src/utils/storage';
 import { Logger } from '@/src/utils/logger';
+import { scoreCandidate, REJECT_AT, type TitleProfile } from '@/src/utils/matchScore';
+import { resolveHub } from '@/src/utils/titleHub';
 import { isUnavailable, type HostPool } from '@/src/utils/hostPool';
 import {
   MAIN_CHAIN,
@@ -16,7 +18,7 @@ import {
   rememberHost,
   setTitleChain,
 } from '@/src/utils/mirrors';
-import type { PlatformKey, PlatformConfig, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
+import type { PlatformConfig, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 export interface QueryResult {
   title: string;
@@ -33,6 +35,12 @@ export interface QueryFailure {
 }
 
 export type QueryItem = QueryResult | QueryFailure;
+
+/** A search hit whose names match the page's; `chain` when the search tells which site of the platform has it. */
+export interface Candidate {
+  slug: string;
+  chain?: string;
+}
 
 export interface PoolFlags {
   /** For a lookup by slug a 404 is the host saying "no such title"; for GraphQL or search it means a broken host. */
@@ -61,16 +69,14 @@ export abstract class BasePlatformAPI {
    */
   abstract getSlugFromURL(url: string): string | null;
 
-  /**
-   * Search for manga on this platform by titles
-   * Returns SearchResult or null if not found
-   */
-  abstract search(
-    sourcePlatform: PlatformKey,
-    sourceSlug: string,
-    titles: string[],
-    signal?: AbortSignal
-  ): Promise<SearchResult | null>;
+  /** Hits of one search query whose names match `titles`; `null` when the request failed. */
+  protected abstract candidatesFor(query: string, titles: string[], signal?: AbortSignal): Promise<Candidate[] | null>;
+
+  /** Senkuro checks its hits' alt names only once every query found nothing. */
+  protected fallbackCandidates?(titles: string[], signal?: AbortSignal): Promise<Candidate[]>;
+
+  /** `chain` locates a candidate whose site isn't stored yet. */
+  abstract getProfile(slug: string, chain?: string): Promise<TitleProfile | null>;
 
   /**
    * Get manga metadata (titles, cover, etc.)
@@ -90,11 +96,8 @@ export abstract class BasePlatformAPI {
   /** Popup search; null when no host answered, so the popup can say so instead of "not found". */
   abstract searchByQuery(query: string): Promise<QueryItem[] | null>;
 
-  /**
-   * F4.1: Optional convenience method — fetch + cache chapters/bookmark in one call.
-   * Implemented by most platforms but not required by the contract.
-   */
-  getData?(slug: string): Promise<unknown>;
+  /** Counts and progress through the cache; the shared search links a candidate only once this answers. */
+  abstract getData(slug: string): Promise<SearchResult | null>;
 
   protected failedFetches = 0;
 
@@ -104,15 +107,118 @@ export abstract class BasePlatformAPI {
    * are reported as `undefined` and must not be cached.
    */
   async searchVerified(
-    sourcePlatform: PlatformKey,
-    sourceSlug: string,
     titles: string[],
+    page: TitleProfile | null,
     signal?: AbortSignal
   ): Promise<SearchResult | null | undefined> {
     const failedBefore = this.failedFetches;
-    const result = await this.search(sourcePlatform, sourceSlug, titles, signal);
+    const result = await this.search(titles, page, signal);
     if (result) return result;
     return this.failedFetches > failedBefore ? undefined : null;
+  }
+
+  /**
+   * Query by query, as the sites rank hits per query. A query whose candidates
+   * are all rejected leaves it to the next; a failed one ends the search — the
+   * next query would hit the same hosts.
+   */
+  private async search(titles: string[], page: TitleProfile | null, signal?: AbortSignal): Promise<SearchResult | null> {
+    const seen = new Set<string>();
+    let failed = false;
+    const pick = async (found: Candidate[]): Promise<SearchResult | null> => {
+      const fresh = found.filter((candidate) => !seen.has(candidate.slug));
+      fresh.forEach((candidate) => seen.add(candidate.slug));
+      for (const candidate of await this.rank(fresh, page)) {
+        if (signal?.aborted) return null;
+        if (candidate.chain) await setTitleChain(this.config.key, candidate.slug, candidate.chain);
+        const failedBefore = this.failedFetches;
+        const data = await this.getData(candidate.slug);
+        if (data) return data;
+        // The best fit didn't load: settling for the next one would link a worse match, a remake say.
+        failed = this.failedFetches > failedBefore;
+        if (failed) return null;
+      }
+      return null;
+    };
+
+    for (const title of titles) {
+      if (signal?.aborted) return null;
+      const found = await this.candidatesFor(title, titles, signal);
+      if (!found) return null;
+      const result = await pick(found);
+      if (result || failed) return result;
+    }
+    if (signal?.aborted || !this.fallbackCandidates) return null;
+    return pick(await this.fallbackCandidates(titles, signal));
+  }
+
+  /** Keyed with the chain: one slug can be two titles on two sites of a network (ReadManga / MintManga). */
+  private profiles = new Map<string, Promise<{ profile: TitleProfile | null; complete: boolean }>>();
+
+  /**
+   * Kept for the page's life, as the page, rows and bridges ask again — unless
+   * the site or MangaBaka failed: a lasting gap would leave every search on the
+   * page unscored.
+   */
+  profileOf(slug: string, chain?: string): Promise<TitleProfile | null> {
+    const key = `${chain ?? ''}:${slug}`;
+    let loading = this.profiles.get(key);
+    if (!loading) {
+      loading = this.loadProfile(slug, chain);
+      this.profiles.set(key, loading);
+      void loading.then(({ complete }) => complete || this.profiles.delete(key));
+    }
+    return loading.then(({ profile }) => profile);
+  }
+
+  /**
+   * MangaBaka fills a missing year and adds Latin author names, so ID-only and
+   * Cyrillic-only sites can still be compared; the site's own year stays first —
+   * a site may link the source novel's entry (ReadManga's Overgeared points at
+   * the 2014 Temppal).
+   */
+  private async loadProfile(slug: string, chain?: string): Promise<{ profile: TitleProfile | null; complete: boolean }> {
+    let found: TitleProfile | null;
+    try {
+      found = await this.getProfile(slug, chain);
+    } catch (error) {
+      Logger.warn(this.config.key, 'Profile failed', slug, error);
+      return { profile: null, complete: false };
+    }
+    if (!found) return { profile: null, complete: false };
+
+    const hub = await resolveHub(found.ids).catch((error) => {
+      Logger.warn(this.config.key, 'MangaBaka lookup failed', slug, error);
+      return undefined;
+    });
+    const profile = hub
+      ? { ...found, series: hub.series, related: hub.related, year: found.year ?? hub.year, authors: [...found.authors, ...hub.authors] }
+      : found;
+    Logger.debug(this.config.key, 'Profile', slug, profile);
+    return { profile, complete: hub !== undefined };
+  }
+
+  /** Rejected candidates drop out; the rest go best first, ties in the search's own order. */
+  private async rank(candidates: Candidate[], page: TitleProfile | null): Promise<Candidate[]> {
+    const pageHasEvidence = !!page && (!!page.year || page.authors.length > 0 || Object.values(page.ids).some(Boolean));
+    if (!pageHasEvidence || candidates.length === 0) return candidates;
+    const scored = await Promise.all(
+      candidates.map(async (candidate, order) => {
+        const profile = await this.profileOf(candidate.slug, candidate.chain);
+        return { candidate, order, score: profile ? scoreCandidate(page!, profile) : 0 };
+      })
+    );
+    Logger.debug(this.config.key, 'Candidates scored', scored.map((s) => `${s.candidate.slug}: ${s.score}`));
+    return scored
+      .filter((s) => s.score > REJECT_AT)
+      .sort((a, b) => b.score - a.score || a.order - b.order)
+      .map((s) => s.candidate);
+  }
+
+  /** Only a 404 for the title's own page says it is gone — an outage or a block must keep the link. */
+  async titleGone(slug: string): Promise<boolean> {
+    const result = await this.request(this.link(slug), { withCredentials: true } as RequestInit);
+    return !result.ok && result.status === 404;
   }
 
   /**

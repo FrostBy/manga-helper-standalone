@@ -10,16 +10,20 @@ import { t } from '@/src/utils';
 import type { PlatformKey } from '@/src/types';
 import { PlatformStats } from './PlatformStats';
 import { usePlatformItems } from './usePlatformItems';
+import { RefreshIcon, EditIcon } from './PlatformDropdown';
 
 interface Props {
   children: preact.ComponentChildren;
   className?: string;
   onRefresh: (key: PlatformKey) => void;
+  /** For Bootstrap sites without Font Awesome (Mangahub): the `fa` icons would render empty. */
+  svgIcons?: boolean;
 }
 
-export function BootstrapPlatformButton({ children, className = '', onRefresh }: Props) {
+export function BootstrapPlatformButton({ children, className = '', onRefresh, svgIcons = false }: Props) {
   const items = usePlatformItems(onRefresh);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const Icon = svgIcons ? 'span' : 'i';
 
   // A DOM click, not Bootstrap's API: Bootstrap lives in the page's JS world,
   // out of the content script's reach.
@@ -57,8 +61,8 @@ export function BootstrapPlatformButton({ children, className = '', onRefresh }:
               <span>{item.api.config.title}</span>
               <PlatformStats item={item} />
             </a>
-            <i
-              class="fa fa-fw fa-refresh"
+            <Icon
+              class={svgIcons ? 'mh-svg-icon' : 'fa fa-fw fa-refresh'}
               title={t('refresh')}
               style={{
                 cursor: 'pointer',
@@ -70,9 +74,11 @@ export function BootstrapPlatformButton({ children, className = '', onRefresh }:
                 e.stopPropagation();
                 if (!item.isLoading) item.onRefresh();
               }}
-            />
-            <i
-              class="fa fa-fw fa-pencil"
+            >
+              {svgIcons && <RefreshIcon />}
+            </Icon>
+            <Icon
+              class={svgIcons ? 'mh-svg-icon' : 'fa fa-fw fa-pencil'}
               title={t('editLinkTooltip')}
               style={{
                 cursor: 'pointer',
@@ -84,7 +90,9 @@ export function BootstrapPlatformButton({ children, className = '', onRefresh }:
                 e.stopPropagation();
                 if (!item.isLoading) item.onEdit();
               }}
-            />
+            >
+              {svgIcons && <EditIcon />}
+            </Icon>
           </div>
         ))}
       </div>

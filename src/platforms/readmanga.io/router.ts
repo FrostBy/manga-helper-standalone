@@ -2,7 +2,7 @@ import { BaseRouter } from '@/src/router';
 import type { RoutesConfig } from '@/src/router';
 import type { PlatformKey } from '@/src/types';
 import { tokens } from '@/src/utils/storage';
-import { readmangaAPI } from '@/src/api';
+import { getAPI } from '@/src/api';
 import { MangaPage, ChapterPage } from './pages';
 
 export class ReadMangaRouter extends BaseRouter {
@@ -35,6 +35,6 @@ export class ReadMangaRouter extends BaseRouter {
     } catch {
       // Ignore parse errors
     }
-    await readmangaAPI.claimPage(window.location.href);
+    await getAPI(this.platformKey).claimPage(window.location.href);
   }
 }

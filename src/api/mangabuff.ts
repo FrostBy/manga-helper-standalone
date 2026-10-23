@@ -3,12 +3,13 @@
  * Uses REST API + HTML parsing
  */
 
-import { BasePlatformAPI } from './base';
+import { BasePlatformAPI, type Candidate } from './base';
 import { Logger } from '@/src/utils/logger';
 import { userProgress } from '@/src/utils/storage';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import { titlesMatch } from '@/src/utils/manga';
-import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
+import { yearIn, type TitleProfile } from '@/src/utils/matchScore';
+import type { PlatformConfig, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://mangabuff.ru';
 
@@ -63,58 +64,18 @@ export class MangaBuffAPI extends BasePlatformAPI {
     return parseSlugFromUrl(url, ['mangabuff.ru'], /^\/manga\/([^/?#]+)/);
   }
 
-  /**
-   * Search for manga by titles
-   */
-  async search(
-    sourcePlatform: PlatformKey,
-    sourceSlug: string,
-    titles: string[],
-    signal?: AbortSignal
-  ): Promise<SearchResult | null> {
-    Logger.debug(this.config.key, 'Search started', { titles });
-
-    // Try each title sequentially (allows abort between requests)
-    for (const title of titles) {
-      if (signal?.aborted) return null;
-
-      const slug = await this.searchByTitle(title, titles);
-      Logger.debug(this.config.key, 'Search result for title', { title, found: slug });
-
-      if (slug) {
-        if (signal?.aborted) return null;
-
-        // Get manga data
-        const data = await this.getMangaData(slug);
-        if (data) {
-          Logger.debug(this.config.key, 'Match found', slug);
-          await this.cacheResult(slug, data.chapter, data.lastChapterRead);
-          return this.prepareResponse(slug, data.chapter, data.lastChapterRead);
-        }
-      }
-    }
-
-    if (signal?.aborted) return null;
-
-    Logger.debug(this.config.key, 'No match found');
-    return null;
+  protected async candidatesFor(query: string, titles: string[]): Promise<Candidate[] | null> {
+    const response = await this.fetch<MangaBuffSearchResult>(`${BASE_URL}/search/suggestions?q=${encodeURIComponent(query)}`);
+    if (!response) return null;
+    if (!Array.isArray(response)) return [];
+    return response.filter((item) => titlesMatch([item.name], titles)).map(({ slug }) => ({ slug }));
   }
 
-  /**
-   * Search by single title, match result against all known titles
-   */
-  private async searchByTitle(title: string, allTitles: string[]): Promise<string | null> {
-    const url = `${BASE_URL}/search/suggestions?q=${encodeURIComponent(title)}`;
-    const response = await this.fetch<MangaBuffSearchResult>(url);
-
-    // API returns array directly
-    if (!response || !Array.isArray(response) || response.length === 0) {
-      return null;
-    }
-
-    // Find match against any of our titles (covers alt name scenarios)
-    const entity = response.find((e) => titlesMatch([e.name], allTitles));
-    return entity?.slug ?? null;
+  async getProfile(slug: string): Promise<TitleProfile | null> {
+    const html = await this.fetch<string>(`${BASE_URL}/manga/${slug}`);
+    if (typeof html !== 'string') return null;
+    const links = new DOMParser().parseFromString(html, 'text/html').querySelector('.manga__middle-links');
+    return { year: yearIn(links?.textContent), authors: [], ids: {} };
   }
 
   /**

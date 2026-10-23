@@ -11,6 +11,7 @@ import { cache } from '@/src/utils/storage';
 import { resolveViaBridges } from '@/src/utils/transitiveResolve';
 import { normalizeTitle, uniqueTitles } from '@/src/utils/manga';
 import { Logger } from '@/src/utils/logger';
+import type { TitleProfile } from '@/src/utils/matchScore';
 import type { PlatformKey } from '@/src/types';
 
 export interface PlatformActionOpts {
@@ -24,13 +25,19 @@ function pageTitles(): string[] {
   return uniqueTitles(useMangaStore.getState().titles);
 }
 
+/** Candidates everywhere, bridges included, are compared with the title of this page. */
+function pageProfile(currentPlatform: PlatformKey): Promise<TitleProfile | null> {
+  const slug = useMappingsStore.getState().currentSlug;
+  return slug ? getAPI(currentPlatform).profileOf(slug) : Promise.resolve(null);
+}
+
 // Once aborted the store already describes the next page — every write after
 // an await re-checks the signal, or this title's result lands on that one.
 
 /** A failed fetch marks the row instead of leaving "0 [0]", which read as "no chapters". */
-async function fetchData(platformKey: PlatformKey, slug: string, signal: AbortSignal): Promise<void> {
+async function fetchData(platformKey: PlatformKey, slug: string, signal: AbortSignal): Promise<boolean> {
   const api = getAPI(platformKey);
-  if (!api.getData || signal.aborted) return;
+  if (signal.aborted) return false;
 
   const store = useMappingsStore.getState();
   store.setLoading(platformKey, true);
@@ -40,10 +47,11 @@ async function fetchData(platformKey: PlatformKey, slug: string, signal: AbortSi
   } finally {
     if (!signal.aborted) store.setLoading(platformKey, false);
   }
-  if (signal.aborted) return;
+  if (signal.aborted) return false;
 
   store.setFailed(platformKey, !data);
   await store.loadCachedResult(platformKey);
+  return !data;
 }
 
 async function loadPlatformData(
@@ -62,10 +70,13 @@ async function loadPlatformData(
     const existingSlug = store.manualLinks[platformKey] ?? store.autoLinks[platformKey];
 
     if (typeof existingSlug === 'string') {
-      if (!(await store.loadCachedResult(platformKey))) {
-        await fetchData(platformKey, existingSlug, signal);
-      }
-      return 'done';
+      if (await store.loadCachedResult(platformKey)) return 'done';
+      const failed = await fetchData(platformKey, existingSlug, signal);
+      // A title the site deleted or re-uploaded otherwise stays a failed row until a manual refresh.
+      const isAuto = useMappingsStore.getState().manualLinks[platformKey] == null;
+      if (!failed || !isAuto || signal.aborted) return 'done';
+      if (!(await getAPI(platformKey).titleGone(existingSlug))) return 'done';
+      return (await searchAndLink(currentPlatform, platformKey, signal, existingSlug)) === 'notFound' ? 'notFound' : 'done';
     }
 
     if (existingSlug === false) return 'done';
@@ -97,9 +108,10 @@ async function searchAndLink(
   store.setLoading(platformKey, true);
   let result;
   try {
-    result = await getAPI(platformKey).searchVerified(currentPlatform, store.currentSlug || '', titles, signal);
+    result = await getAPI(platformKey).searchVerified(titles, await pageProfile(currentPlatform), signal);
   } finally {
-    if (!signal.aborted) store.setLoading(platformKey, false);
+    // A miss waits for settleNotFound (other sites' names, then "not found"); stopping here blanks the row.
+    if (!signal.aborted) store.setLoading(platformKey, result === null);
   }
   if (signal.aborted) return 'skipped';
 
@@ -130,25 +142,30 @@ async function settleNotFound(
   if (notFound.length === 0 || signal.aborted) return;
 
   const store = useMappingsStore.getState();
-  const node = await nodeStore.resolveByTuple(currentPlatform, store.currentSlug ?? '');
-  if (signal.aborted) return;
-
   let resolved = new Set<PlatformKey>();
   let failed = new Set<PlatformKey>();
-  if (node) {
-    const tried = new Set(pageTitles().map(normalizeTitle));
-    notFound.forEach((key) => store.setLoading(key, true));
-    try {
-      ({ resolved, failed } = await resolveViaBridges(node, notFound, currentPlatform, tried, signal));
-    } finally {
-      if (!signal.aborted) notFound.forEach((key) => store.setLoading(key, false));
-    }
-  }
-
-  for (const key of notFound) {
+  // The spinner stops only once "not found" is stored, or the row goes blank in between.
+  notFound.forEach((key) => store.setLoading(key, true));
+  try {
+    const node = await nodeStore.resolveByTuple(currentPlatform, store.currentSlug ?? '');
     if (signal.aborted) return;
-    store.setFailed(key, failed.has(key));
-    if (!resolved.has(key) && !failed.has(key)) await store.saveAutoMapping(key, false);
+
+    if (node) {
+      const tried = new Set(pageTitles().map(normalizeTitle));
+      ({ resolved, failed } = await resolveViaBridges(node, notFound, currentPlatform, tried, await pageProfile(currentPlatform), signal));
+    }
+
+    for (const key of notFound) {
+      if (signal.aborted) return;
+      store.setFailed(key, failed.has(key));
+      if (!resolved.has(key) && !failed.has(key)) await store.saveAutoMapping(key, false);
+    }
+  } catch (error) {
+    // Nothing got stored: the row shows the failure instead of going blank.
+    if (!signal.aborted) notFound.forEach((key) => store.setFailed(key, true));
+    throw error;
+  } finally {
+    if (!signal.aborted) notFound.forEach((key) => store.setLoading(key, false));
   }
 
   if (resolved.size === 0 || signal.aborted) return;

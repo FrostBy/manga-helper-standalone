@@ -1,6 +1,6 @@
 {
   "name": "manga-helper",
-  "version": "2026.10.23.1",
+  "version": "2026.10.23.2",
   "description": "Cross-platform manga tracker",
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "wxt build",
     "build:dev": "wxt build --mode development",
     "bump": "node scripts/bump-version.mjs",
-    "test": "node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/manga.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/lock.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/inkstoryProgress.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/readmangaChapters.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/hostPool.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/senkuroChain.check.ts",
+    "test": "node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/manga.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/lock.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/inkstoryProgress.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/readmangaChapters.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/hostPool.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/senkuroChain.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/mangachanParse.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/matchScore.check.ts",
     "build:firefox": "wxt build -b firefox",
     "build:obf": "cross-env OBFUSCATE=true wxt build",
     "build:obf:firefox": "cross-env OBFUSCATE=true wxt build -b firefox",

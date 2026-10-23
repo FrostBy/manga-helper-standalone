@@ -11,12 +11,13 @@
  * browser attaches the challenge cookie earned when the user visits the site.
  */
 
-import { BasePlatformAPI } from './base';
+import { BasePlatformAPI, type Candidate } from './base';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import type { FetchResult } from '@/src/utils/fetch';
 import { titlesMatch } from '@/src/utils/manga';
-import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
+import { yearIn, type TitleProfile } from '@/src/utils/matchScore';
+import type { PlatformConfig, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const BASE_URL = 'https://com-x.life';
 
@@ -136,46 +137,11 @@ export class ComXAPI extends BasePlatformAPI {
   }
 
   /**
-   * Search for manga by titles
-   */
-  async search(
-    sourcePlatform: PlatformKey,
-    sourceSlug: string,
-    titles: string[],
-    signal?: AbortSignal
-  ): Promise<SearchResult | null> {
-    Logger.debug(this.config.key, 'Search started', { titles });
-
-    for (const title of titles) {
-      if (signal?.aborted) return null;
-
-      const slug = await this.searchByTitle(title, titles);
-      Logger.debug(this.config.key, 'Search result for title', { title, found: slug });
-
-      if (slug) {
-        if (signal?.aborted) return null;
-
-        const data = await this.getMangaData(slug);
-        if (data) {
-          Logger.debug(this.config.key, 'Match found', slug);
-          await this.cacheResult(slug, data.chapter, data.lastChapterRead);
-          return this.prepareResponse(slug, data.chapter, data.lastChapterRead);
-        }
-      }
-    }
-
-    if (signal?.aborted) return null;
-
-    Logger.debug(this.config.key, 'No match found');
-    return null;
-  }
-
-  /**
    * DLE search — returns HTML, no JSON endpoint exists.
    * Accepts a hit only when one of its names matches ours, since DLE returns loose
    * full-text matches (searching one title yields ~30 unrelated results).
    */
-  private async searchByTitle(title: string, allTitles: string[]): Promise<string | null> {
+  protected async candidatesFor(query: string, titles: string[]): Promise<Candidate[] | null> {
     const html = await this.fetchPage(`${BASE_URL}/index.php?do=search`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -185,16 +151,26 @@ export class ComXAPI extends BasePlatformAPI {
         search_start: '0',
         full_search: '0',
         result_from: '1',
-        story: title,
+        story: query,
       }).toString(),
     });
     if (!html) return null;
+    return this.parseSearchResults(html)
+      .filter(({ names }) => titlesMatch(names, titles))
+      .map(({ slug }) => ({ slug }));
+  }
 
-    for (const { slug, names } of this.parseSearchResults(html)) {
-      if (titlesMatch(names, allTitles)) return slug;
-    }
-
-    return null;
+  async getProfile(slug: string): Promise<TitleProfile | null> {
+    const html = await this.fetchPage(`${BASE_URL}/${slug}.html`);
+    if (!html) return null;
+    const rows = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('.page__list li')];
+    const value = (label: string) =>
+      rows.find((li) => li.querySelector('div')?.textContent?.trim() === label)?.textContent?.replace(label, '').trim();
+    const authors = [value('Автор:'), value('Художник:')]
+      .flatMap((names) => names?.split(',') ?? [])
+      .map((name) => name.trim())
+      .filter(Boolean);
+    return { year: yearIn(value('Год:')), authors, ids: {} };
   }
 
   /**
@@ -253,6 +229,12 @@ export class ComXAPI extends BasePlatformAPI {
     }
 
     return result.ok && typeof result.data === 'string' ? result.data : null;
+  }
+
+  /** The challenge also comes as a 404 page — that one is not a missing title. */
+  async titleGone(slug: string): Promise<boolean> {
+    const result = await this.request<string>(this.link(slug), { withCredentials: true } as RequestInit);
+    return !result.ok && result.status === 404 && !isChallenged(result);
   }
 
   private async refreshAccess(): Promise<boolean> {

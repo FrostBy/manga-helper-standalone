@@ -1,38 +1,46 @@
 /**
- * ReadManga API — Grouple sites on one engine: ReadManga, MintManga (18+), SeiManga.
- * Title pages are HTML; the bookmark comes from the shared Grouple API.
+ * Grouple engine API — ReadManga with its sister sites (MintManga 18+, SeiManga),
+ * and AllHentai, a separate network on the same engine.
+ * Title pages are HTML; the bookmark comes from the API the page names (X_API_URL).
  */
 
-import { BasePlatformAPI, type QueryItem } from './base';
+import { BasePlatformAPI, type Candidate, type QueryItem } from './base';
 import { readingStats, type ChapterRow } from './readmangaChapters';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import { titlesMatch } from '@/src/utils/manga';
-import { currentHost, setTitleChain, titleChain } from '@/src/utils/mirrors';
+import { idsInLinks, yearIn, type TitleProfile } from '@/src/utils/matchScore';
+import { MAIN_CHAIN, currentHost, titleChain } from '@/src/utils/mirrors';
 import type { HostPool } from '@/src/utils/hostPool';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
-type GroupleChain = 'manga' | 'hentai' | 'seinen';
+export interface GroupleNetwork {
+  key: PlatformKey;
+  title: string;
+  /** Hosts whose links are this platform's titles, subdomains included. */
+  domains: string[];
+  /** Fallback hosts carry fewer titles: a title missing there is a failure, not "not found". */
+  pools: Record<string, HostPool>;
+  /** Auto-linking prefers the main catalog when a title is on several sites. */
+  chainOrder: string[];
+  groups: Record<string, string>;
+}
 
-/** Fallback hosts carry fewer titles: a title missing there is a failure, not "not found". */
-const SITE_POOLS: Record<GroupleChain, HostPool> = {
-  manga: { id: 'readmanga:manga', hosts: ['https://a.zazaza.me', 'https://readmanga.me'] },
-  hentai: { id: 'readmanga:hentai', hosts: ['https://2.mintmanga.one', 'https://1.mintmanga.com'] },
-  seinen: { id: 'readmanga:seinen', hosts: ['https://1.seimanga.me'] },
+const READMANGA: GroupleNetwork = {
+  key: 'readmanga',
+  title: 'ReadManga',
+  domains: ['zazaza.me', 'readmanga.io', 'readmanga.me', 'mintmanga.com', 'mintmanga.one', 'seimanga.me'],
+  pools: {
+    manga: { id: 'readmanga:manga', hosts: ['https://a.zazaza.me', 'https://readmanga.me'] },
+    hentai: { id: 'readmanga:hentai', hosts: ['https://2.mintmanga.one', 'https://1.mintmanga.com'] },
+    seinen: { id: 'readmanga:seinen', hosts: ['https://1.seimanga.me'] },
+  },
+  chainOrder: ['manga', 'hentai', 'seinen'],
+  groups: { manga: 'ReadManga', hentai: 'MintManga', seinen: 'SeiManga' },
 };
-
-/** Auto-linking prefers the main catalog when a title is on several sites. */
-const CHAIN_ORDER: GroupleChain[] = ['manga', 'hentai', 'seinen'];
-
-const GROUPS: Record<GroupleChain, string> = { manga: 'ReadManga', hentai: 'MintManga', seinen: 'SeiManga' };
 
 /** A parked domain or a block page answers 200 too; every Grouple page declares its site. */
 const isGrouplePage = (data: unknown): boolean => typeof data === 'string' && data.includes('RM_site_id');
-
-const chainOfTitle = (slug: string): GroupleChain => {
-  const chain = titleChain('readmanga', slug);
-  return chain in SITE_POOLS ? (chain as GroupleChain) : 'manga';
-};
 
 interface ReadMangaMeta {
   externalId: string;
@@ -76,23 +84,6 @@ interface ReadMangaSearchResult {
   suggestions: ReadMangaSearchSuggestion[];
 }
 
-/**
- * Suggestions span the whole federation: own titles have relative links, other
- * sites absolute ones. Sites we don't cover (SelfManga, LibreBook) are dropped —
- * their slug would 404 on every pool.
- */
-function titleOfSuggestion(s: ReadMangaSearchSuggestion): { slug: string; chain: GroupleChain } | null {
-  if (!s.link) return null;
-  if (s.link.startsWith('/')) return { slug: s.link.slice(1), chain: 'manga' };
-  try {
-    const { origin, pathname } = new URL(s.link);
-    const chain = CHAIN_ORDER.find((c) => SITE_POOLS[c].hosts.includes(origin));
-    return chain ? { slug: pathname.slice(1), chain } : null;
-  } catch {
-    return null;
-  }
-}
-
 interface ServerVariables {
   siteId?: string;
   serverUrl?: string;
@@ -102,88 +93,82 @@ interface ServerVariables {
 }
 
 export class ReadMangaAPI extends BasePlatformAPI {
-  readonly config: PlatformConfig = {
-    key: 'readmanga',
-    domain: 'a.zazaza.me',
-    title: 'ReadManga',
-  };
+  readonly config: PlatformConfig;
 
-  protected sitePools = SITE_POOLS;
+  constructor(private readonly network: GroupleNetwork) {
+    super();
+    this.config = { key: network.key, domain: new URL(network.pools[MAIN_CHAIN].hosts[0]).host, title: network.title };
+    this.sitePools = network.pools;
+  }
+
+  private chainOfTitle(slug: string): string {
+    const chain = titleChain(this.config.key, slug);
+    return chain in this.network.pools ? chain : MAIN_CHAIN;
+  }
+
+  /**
+   * Suggestions span the whole federation: own titles have relative links, other
+   * sites absolute ones. Sites we don't cover (SelfManga, LibreBook) are dropped —
+   * their slug would 404 on every pool.
+   */
+  private titleOfSuggestion(s: ReadMangaSearchSuggestion): { slug: string; chain: string } | null {
+    if (!s.link) return null;
+    if (s.link.startsWith('/')) return { slug: s.link.slice(1), chain: MAIN_CHAIN };
+    try {
+      const { origin, pathname } = new URL(s.link);
+      const chain = this.network.chainOrder.find((c) => this.network.pools[c].hosts.includes(origin));
+      return chain ? { slug: pathname.slice(1), chain } : null;
+    } catch {
+      return null;
+    }
+  }
 
   link(slug: string, chain?: string): string {
-    const pool = SITE_POOLS[(chain ?? chainOfTitle(slug)) as GroupleChain] ?? SITE_POOLS.manga;
+    const pool = this.network.pools[chain ?? this.chainOfTitle(slug)] ?? this.network.pools[MAIN_CHAIN];
     return `${currentHost(pool)}/${slug}#chapters-list`;
   }
 
   getSlugFromURL(url: string): string | null {
-    return parseSlugFromUrl(
-      url,
-      ['zazaza.me', 'readmanga.io', 'readmanga.me', 'mintmanga.com', 'mintmanga.one', 'seimanga.me'],
-      /^\/([^/?#]+)/
-    );
+    return parseSlugFromUrl(url, this.network.domains, /^\/([^/?#]+)/);
   }
 
-  /**
-   * Search for manga by titles
-   */
-  async search(
-    sourcePlatform: PlatformKey,
-    sourceSlug: string,
-    titles: string[],
-    signal?: AbortSignal
-  ): Promise<SearchResult | null> {
-    Logger.debug(this.config.key, 'Search started', { titles });
-
-    for (const title of titles) {
-      if (signal?.aborted) return null;
-
-      const found = await this.searchByTitle(title, titles);
-      Logger.debug(this.config.key, 'Search result for title', { title, found });
-
-      if (found) {
-        if (signal?.aborted) return null;
-
-        const { slug } = found;
-        await setTitleChain('readmanga', slug, found.chain);
-        const data = await this.getMangaData(slug);
-        if (data) {
-          Logger.debug(this.config.key, 'Match found', slug);
-          await this.cacheResult(slug, data.chapter, data.lastChapterRead);
-          return this.prepareResponse(slug, data.chapter, data.lastChapterRead);
-        }
-      }
-    }
-
-    if (signal?.aborted) return null;
-
-    Logger.debug(this.config.key, 'No match found');
-    return null;
+  /** A fallback host carries fewer titles, so only the primary host's 404 means the title is gone. */
+  async titleGone(slug: string): Promise<boolean> {
+    const pool = this.network.pools[this.chainOfTitle(slug)] ?? this.network.pools[MAIN_CHAIN];
+    const result = await this.request(`${pool.hosts[0]}/${slug}`);
+    return !result.ok && result.status === 404;
   }
 
-  /**
-   * Search by single title with title matching
-   */
-  private async searchByTitle(
-    title: string,
-    allTitles: string[]
-  ): Promise<{ slug: string; chain: GroupleChain } | null> {
-    const matches = ((await this.suggestions(title)) ?? []).flatMap((s) => {
-      const found = titleOfSuggestion(s);
-      return found && titlesMatch([s.value, ...(s.names ?? [])], allTitles) ? [found] : [];
-    });
-    for (const chain of CHAIN_ORDER) {
-      const match = matches.find((m) => m.chain === chain);
-      if (match) return match;
-    }
-    return null;
+  /** Main catalog first on a tie: the same title often sits on a sister site too. */
+  protected async candidatesFor(query: string, titles: string[]): Promise<Candidate[] | null> {
+    const suggestions = await this.suggestions(query);
+    if (!suggestions) return null;
+    const rank = (chain: string) => this.network.chainOrder.indexOf(chain);
+    return suggestions
+      .flatMap((s) => {
+        const found = this.titleOfSuggestion(s);
+        return found && titlesMatch([s.value, ...(s.names ?? [])], titles) ? [found] : [];
+      })
+      .sort((a, b) => rank(a.chain) - rank(b.chain));
   }
 
-  /** One search on the main site covers MintManga and SeiManga too. */
+  async getProfile(slug: string, chain?: string): Promise<TitleProfile | null> {
+    const html = await this.fetchTitlePage(slug, chain);
+    if (!html) return null;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const authors = [...doc.querySelectorAll('.cr-main-person-item__name a[href^="/list/person/"]')]
+      .map((a) => a.textContent?.trim() ?? '')
+      .filter(Boolean);
+    const year = yearIn(doc.querySelector('a[href^="/list/year/"]')?.textContent);
+    return { year, authors, ids: idsInLinks(html) };
+  }
+
+  /** One search on the main site covers the sister sites too. */
   private async suggestions(query: string): Promise<ReadMangaSearchSuggestion[] | null> {
     const params = new URLSearchParams({ query });
     params.append('types[]', 'CREATION');
     params.append('types[]', 'FEDERATION_MANGA');
-    const response = await this.fetchPool<ReadMangaSearchResult>(SITE_POOLS.manga, `/search/suggestion?${params}`);
+    const response = await this.fetchPool<ReadMangaSearchResult>(this.network.pools[MAIN_CHAIN], `/search/suggestion?${params}`);
     return response ? (response.suggestions ?? []) : null;
   }
 
@@ -194,8 +179,9 @@ export class ReadMangaAPI extends BasePlatformAPI {
     }));
   }
 
-  private fetchTitlePage(slug: string): Promise<string | null> {
-    return this.fetchPool<string>(SITE_POOLS[chainOfTitle(slug)], `/${slug}`, undefined, { accept: isGrouplePage });
+  private fetchTitlePage(slug: string, chain = this.chainOfTitle(slug)): Promise<string | null> {
+    const pool = this.network.pools[chain] ?? this.network.pools[MAIN_CHAIN];
+    return this.fetchPool<string>(pool, `/${slug}`, undefined, { accept: isGrouplePage });
   }
 
   private async getMangaData(slug: string): Promise<{ chapter: number; lastChapterRead: number } | null> {
@@ -432,12 +418,12 @@ export class ReadMangaAPI extends BasePlatformAPI {
     if (!suggestions) return null;
 
     const results = suggestions.flatMap((s) => {
-      const found = titleOfSuggestion(s);
+      const found = this.titleOfSuggestion(s);
       return found
-        ? [{ title: s.value || '', slug: found.slug, image: s.thumbnail || undefined, chain: found.chain, group: GROUPS[found.chain] }]
+        ? [{ title: s.value || '', slug: found.slug, image: s.thumbnail || undefined, chain: found.chain, group: this.network.groups[found.chain] }]
         : [];
     });
-    new Set(results.map((r) => r.chain)).forEach((chain) => this.probeSiteHost(SITE_POOLS[chain]));
+    new Set(results.map((r) => r.chain)).forEach((chain) => this.probeSiteHost(this.network.pools[chain]));
     return results;
   }
 
@@ -460,4 +446,4 @@ export class ReadMangaAPI extends BasePlatformAPI {
 }
 
 // Export singleton instance
-export const readmangaAPI = new ReadMangaAPI();
+export const readmangaAPI = new ReadMangaAPI(READMANGA);

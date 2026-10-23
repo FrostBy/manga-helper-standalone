@@ -5,15 +5,16 @@
  * server renders for the logged-in user.
  */
 
-import { BasePlatformAPI, type QueryItem } from './base';
+import { BasePlatformAPI, type Candidate, type QueryItem } from './base';
 import { Logger } from '@/src/utils/logger';
 import { userProgress } from '@/src/utils/storage';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import { titlesMatch } from '@/src/utils/manga';
-import { currentHost, setTitleChain, titleChain } from '@/src/utils/mirrors';
+import { idsInLinks, type TitleProfile } from '@/src/utils/matchScore';
+import { currentHost, titleChain } from '@/src/utils/mirrors';
 import type { HostPool } from '@/src/utils/hostPool';
 import { readingStats, parseBookmarkIds, type InkstoryChapter } from './inkstoryProgress';
-import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
+import type { PlatformConfig, SearchResult, Manga, ChaptersResponse, Bookmark } from '@/src/types';
 
 const API_URL = 'https://api.inkstory.net/v2';
 
@@ -65,7 +66,9 @@ interface InkstorySearchItem {
     name: string;
   }>;
   country: string;
-  year: number;
+  year: number | null;
+  /** MangaUpdates and MangaBaka links; only in the book lookup, not in search results. */
+  externalLinks?: string[];
   formats: string[];
   featured: boolean;
   viewsCount: number;
@@ -98,56 +101,34 @@ export class InkstoryAPI extends BasePlatformAPI {
     return parseSlugFromUrl(url, ['inkstory.net', 'manga.ovh', 'puremanga.me'], /^\/content\/([^/?#]+)/);
   }
 
-  /**
-   * Search for manga by titles
-   */
-  async search(
-    sourcePlatform: PlatformKey,
-    sourceSlug: string,
-    titles: string[],
-    signal?: AbortSignal
-  ): Promise<SearchResult | null> {
-    Logger.debug(this.config.key, 'Search started', { titles });
-
-    for (const title of titles) {
-      if (signal?.aborted) return null;
-
-      const found = await this.searchByTitle(title, titles);
-      Logger.debug(this.config.key, 'Search result for title', { title, found });
-
-      if (found) {
-        if (signal?.aborted) return null;
-
-        const { slug } = found;
-        await setTitleChain('inkstory', slug, found.chain);
-        const data = await this.getMangaData(slug);
-        if (data) {
-          Logger.debug(this.config.key, 'Match found', slug);
-          await this.cacheResult(slug, data.chapter, data.lastChapterRead);
-          return this.prepareResponse(slug, data.chapter, data.lastChapterRead);
-        }
-      }
-    }
-
-    if (signal?.aborted) return null;
-
-    Logger.debug(this.config.key, 'No match found');
-    return null;
+  /** Inkstory first under every name: an Inkstory match wins over PureManga (spec), and PureManga is still asked when Inkstory's are all rejected. */
+  protected candidatesFor(query: string, titles: string[]): Promise<Candidate[] | null> {
+    return this.catalogCandidates(query, titles, 'manga');
   }
 
-  /**
-   * Search by single title with title matching
-   */
-  private async searchByTitle(title: string, allTitles: string[]): Promise<{ slug: string; chain: InkChain } | null> {
-    for (const chain of CHAIN_ORDER) {
-      const response = await this.searchBooks(title, chain);
-      if (!Array.isArray(response)) continue;
-      const matched = response.find((book) =>
-        titlesMatch([...(book.altNames ?? []).map((alt) => alt.name), ...Object.values(book.name ?? {})], allTitles)
-      );
-      if (matched?.slug) return { slug: matched.slug, chain };
+  protected async fallbackCandidates(titles: string[], signal?: AbortSignal): Promise<Candidate[]> {
+    const found: Candidate[] = [];
+    for (const title of titles) {
+      if (signal?.aborted) break;
+      const hits = await this.catalogCandidates(title, titles, 'hentai');
+      if (!hits) break;
+      found.push(...hits);
     }
-    return null;
+    return found;
+  }
+
+  private async catalogCandidates(query: string, titles: string[], chain: InkChain): Promise<Candidate[] | null> {
+    const response = await this.searchBooks(query, chain);
+    if (!Array.isArray(response)) return null;
+    return response
+      .filter((book) => book.slug && titlesMatch([...(book.altNames ?? []).map((alt) => alt.name), ...Object.values(book.name ?? {})], titles))
+      .map(({ slug }) => ({ slug, chain }));
+  }
+
+  async getProfile(slug: string, chain?: string): Promise<TitleProfile | null> {
+    const book = await this.fetchBook(slug, chain as InkChain | undefined);
+    if (!book?.id) return null;
+    return { year: book.year || undefined, authors: [], ids: idsInLinks((book.externalLinks ?? []).join(' ')) };
   }
 
   private searchBooks(query: string, chain: InkChain): Promise<InkstorySearchResult | null> {
@@ -156,9 +137,9 @@ export class InkstoryAPI extends BasePlatformAPI {
     );
   }
 
-  private fetchBook(slug: string): Promise<InkstorySearchItem | null> {
+  private fetchBook(slug: string, chain: InkChain = chainOfTitle(slug)): Promise<InkstorySearchItem | null> {
     return this.fetch<InkstorySearchItem>(`${API_URL}/books/${slug}`, {
-      headers: { 'x-service-name': SERVICES[chainOfTitle(slug)] },
+      headers: { 'x-service-name': SERVICES[chain] },
     });
   }
 

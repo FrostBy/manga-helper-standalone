@@ -15,6 +15,8 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 - **Cross-platform tracking** — See chapter counts from other sites while browsing your favorite manga platform
 - **Reading progress sync** — Shows your reading progress from each platform
 - **Auto-search** — Automatically finds the same manga on other platforms by title matching; refresh re-checks an automatic link and replaces or drops a wrong match
+- **Smarter matching** — When several titles share a name, candidates are compared by external IDs (MyAnimeList, AniList, MangaUpdates through [MangaBaka](https://mangabaka.org)), release year and authors: a namesake or a remake from another year isn't linked, the right edition wins
+- **Dead links heal** — An automatic link whose title was deleted or re-uploaded on its site is searched again on page load instead of staying broken; manual links are never touched
 - **Manual linking** — Manually link manga across platforms when auto-search doesn't find a match
 - **Mark as unavailable** — Explicitly mark a platform as unavailable (e.g. blocked by the copyright holder); it moves to the bottom of the list and is skipped by auto-refresh
 - **Chapter comparison** — Highlights platforms that have more chapters available; licensed MangaLib titles count all chapters, not just the open preview
@@ -36,6 +38,11 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 | ReadManga + MintManga + SeiManga | zazaza.me, readmanga.me, mintmanga.one, mintmanga.com, seimanga.me | ✅ Full support |
 | Inkstory + PureManga | inkstory.net, puremanga.me | ✅ Full support |
 | Com-x | com-x.life | ✅ Full support |
+| AllHentai | allhen.online, allhentai.ru | ✅ Full support |
+| Remanga | remanga.org | ✅ Full support (progress needs sign-in) |
+| Manga-chan | manga-chan.me | ✅ Full support (progress saved while reading) |
+| Mangahub | mangahub.ru | ✅ Full support (progress saved while reading) |
+| MangaPoisk | mangapoisk.me, mangapoisk.ru | ✅ Full support (progress saved while reading) |
 
 ## Installation
 

@@ -13,6 +13,7 @@ import { addOrMergeSlug } from './nodeStorage';
 import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
 import { collectTitles, uniqueTitles } from './manga';
 import { safeEntries } from './platformKeys';
+import type { TitleProfile } from './matchScore';
 import type { MangaNode, MappingValue, PlatformKey } from '@/src/types';
 
 export async function resolveViaBridges(
@@ -20,6 +21,7 @@ export async function resolveViaBridges(
   targets: readonly PlatformKey[],
   skipBridge: PlatformKey,
   triedTitles: ReadonlySet<string>,
+  page: TitleProfile | null,
   signal?: AbortSignal
 ): Promise<{ resolved: Set<PlatformKey>; failed: Set<PlatformKey> }> {
   const resolved = new Set<PlatformKey>();
@@ -48,7 +50,8 @@ export async function resolveViaBridges(
     for (const bridge of bridges) {
       if (signal?.aborted) return { resolved, failed };
       try {
-        const result = await targetAPI.searchVerified(bridge.platform, bridge.slug, bridge.titles, signal);
+        // Scored against the page's title: a wrong bridge must not vouch for its own namesakes.
+        const result = await targetAPI.searchVerified(bridge.titles, page, signal);
         if (signal?.aborted) return { resolved, failed };
         if (result === undefined) {
           failed.add(target);

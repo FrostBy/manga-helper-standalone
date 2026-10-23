@@ -8,7 +8,7 @@ import { waitForElement, t } from '@/src/utils';
 import { useMappingsStore } from '@/src/stores/mappings';
 import { useMangaStore } from '@/src/stores/manga';
 import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
-import { readmangaAPI } from '@/src/api';
+import { getAPI, type ReadMangaAPI } from '@/src/api';
 import { Logger } from '@/src/utils/logger';
 import {
   loadAllPlatformsData,
@@ -25,6 +25,11 @@ export class MangaPage extends BasePage {
   private chaptersTab: HTMLElement | null = null;
   private chaptersStatsContainer: HTMLElement | null = null;
   private unsubscribeStore: (() => void) | null = null;
+
+  /** ReadManga and AllHentai run on one engine and share this page. */
+  private get api(): ReadMangaAPI {
+    return getAPI(this.context.currentPlatform) as ReadMangaAPI;
+  }
 
   protected async initialize(): Promise<void> {
     Logger.debug('ReadManga', 'initialize started');
@@ -97,8 +102,8 @@ export class MangaPage extends BasePage {
   }
 
   private async fetchMangaData(slug: string) {
-    const manga = readmangaAPI.parseMangaHTML(document.documentElement.outerHTML);
-    const data = await readmangaAPI.getData(slug);
+    const manga = this.api.parseMangaHTML(document.documentElement.outerHTML);
+    const data = await this.api.getData(slug);
 
     const titles: string[] = [];
     if (manga?.name) titles.push(manga.name);
@@ -160,7 +165,7 @@ export class MangaPage extends BasePage {
   }
 
   private getSlugFromUrl(): string {
-    return readmangaAPI.getSlugFromURL(window.location.href) || '';
+    return this.api.getSlugFromURL(window.location.href) || '';
   }
 
   async destroy(): Promise<void> {

@@ -52,3 +52,9 @@ export function titlesMatch(
   const wanted = new Set(titles.map(normalizeTitle).filter(Boolean));
   return candidates.some((name) => !!name && wanted.has(normalizeTitle(name)));
 }
+
+/** Sites list chapters newest first, so a chapter's position counts from the bottom. */
+export function chapterPosition(chapterPaths: string[], path: string): number {
+  const index = chapterPaths.indexOf(path);
+  return index < 0 ? 0 : chapterPaths.length - index;
+}

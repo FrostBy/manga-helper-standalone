@@ -183,6 +183,9 @@ const ALLOWED_FETCH_HOST_SUFFIXES = [
   'mintmanga.one',
   'mintmanga.com',
   'seimanga.me',
+  'allhen.online',
+  'allhentai.ru',
+  'qawa.org',
   'rmr.rocks',
   'zazaza.me',
   'one-way.work',
@@ -192,8 +195,14 @@ const ALLOWED_FETCH_HOST_SUFFIXES = [
   'manga.ovh',
   'static.inkstory.net',
   'puremanga.me',
+  'remanga.org',
+  'manga-chan.me',
+  'mangahub.ru',
+  'mangapoisk.me',
+  'mangapoisk.ru',
   'com-x.life',
   'github.io',
+  'mangabaka.org',
 ];
 
 function isAllowedFetchHost(urlString: string): boolean {
@@ -334,6 +343,14 @@ const REFERER_RULES: Array<{
   {
     urlFilter: '||one-way.work/*',
     referer: 'https://3.grouple.co/',
+    resourceTypes: [browser.declarativeNetRequest.ResourceType.IMAGE],
+    ownOnly: true,
+  },
+  // AllHentai answers 404 to pages and search without a Referer; its covers want its own.
+  { urlFilter: '||allhen.online/*', referer: 'https://20.allhen.online/', ownOnly: true },
+  {
+    urlFilter: '||aaa200.one/*',
+    referer: 'https://20.allhen.online/',
     resourceTypes: [browser.declarativeNetRequest.ResourceType.IMAGE],
     ownOnly: true,
   },

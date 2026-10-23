@@ -50,3 +50,12 @@ export const comxLoader = () => (
 
 /** Senkuro's button spinner: two rings drawn on pseudo-elements, fitted to the row in its styles.scss. */
 export const senkuroLoader = () => <span class="button__loading" />;
+
+/** Remanga is Tailwind too; `animate-spin` is in its CSS. */
+export const remangaLoader = inkstoryLoader;
+
+/** Manga-chan has only DLE's text overlay; a ring in its link colour (styles in its styles.scss). */
+export const mangachanLoader = () => <span class="mangachan-loader" role="status" />;
+
+/** MangaPoisk is Tailwind (Skeleton); `animate-spin` is in its CSS. */
+export const mangapoiskLoader = inkstoryLoader;

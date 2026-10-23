@@ -18,6 +18,11 @@ import '@/src/platforms/mangabuff.ru/api';
 import '@/src/platforms/readmanga.io/api';
 import '@/src/platforms/inkstory.net/api';
 import '@/src/platforms/com-x.life/api';
+import '@/src/platforms/allhentai/api';
+import '@/src/platforms/remanga.org/api';
+import '@/src/platforms/manga-chan.me/api';
+import '@/src/platforms/mangahub.ru/api';
+import '@/src/platforms/mangapoisk.me/api';
 
 export default defineContentScript({
   matches: ['*://*.com-x.life/*'],

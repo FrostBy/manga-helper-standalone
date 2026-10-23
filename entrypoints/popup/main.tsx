@@ -2,7 +2,7 @@ import { render } from 'preact';
 import { useState, useCallback, useEffect } from 'preact/hooks';
 import { Island, useAds } from '@/src/islands/Island';
 import { logLevelItem, LogLevel } from '@/src/utils/logger';
-import { mangalibAPI, senkuroAPI, mangabuffAPI, readmangaAPI, inkstoryAPI, comxAPI } from '@/src/api';
+import { mangalibAPI, senkuroAPI, mangabuffAPI, readmangaAPI, inkstoryAPI, comxAPI, allhentaiAPI, remangaAPI, mangachanAPI, mangahubAPI, mangapoiskAPI } from '@/src/api';
 import type { BasePlatformAPI, QueryItem, QueryResult } from '@/src/api/base';
 import './style.scss';
 
@@ -35,6 +35,11 @@ const PLATFORMS: Record<string, { api: BasePlatformAPI; title: string; groups?: 
   readmanga: { api: readmangaAPI, title: 'ReadManga', groups: ['ReadManga', 'MintManga', 'SeiManga'] },
   inkstory: { api: inkstoryAPI, title: 'Inkstory', groups: ['Inkstory', 'PureManga'] },
   comx: { api: comxAPI, title: 'Com-x' },
+  allhentai: { api: allhentaiAPI, title: 'AllHentai' },
+  remanga: { api: remangaAPI, title: 'Remanga' },
+  mangachan: { api: mangachanAPI, title: 'Manga-chan' },
+  mangahub: { api: mangahubAPI, title: 'Mangahub' },
+  mangapoisk: { api: mangapoiskAPI, title: 'MangaPoisk' },
 };
 
 const LOG_LEVELS = [
@@ -73,7 +78,7 @@ function App() {
         setTheme('senkuro');
       } else if (url.includes('mangabuff')) {
         setTheme('mangabuff');
-      } else if (url.includes('readmanga') || url.includes('mintmanga') || url.includes('seimanga') || url.includes('zazaza.me')) {
+      } else if (url.includes('readmanga') || url.includes('mintmanga') || url.includes('seimanga') || url.includes('zazaza.me') || url.includes('allhen')) {
         setTheme('readmanga');
       } else if (url.includes('inkstory') || url.includes('manga.ovh') || url.includes('puremanga')) {
         setTheme('inkstory');

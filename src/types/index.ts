@@ -177,7 +177,12 @@ export type PlatformKey =
   | 'mangabuff'
   | 'readmanga'
   | 'inkstory'
-  | 'comx';
+  | 'comx'
+  | 'allhentai'
+  | 'remanga'
+  | 'mangachan'
+  | 'mangahub'
+  | 'mangapoisk';
 
 /**
  * Platform config
