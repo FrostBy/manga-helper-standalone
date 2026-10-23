@@ -17,7 +17,7 @@ export default defineConfig({
     name: '__MSG_extName__',
     description: '__MSG_extDescription__',
     default_locale: 'en',
-    version: '2026.10.14',
+    version: '2026.10.23',
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -27,9 +27,11 @@ export default defineConfig({
     permissions: ['storage', 'activeTab', 'declarativeNetRequest', 'alarms'],
     host_permissions: [
       '*://*.mangalib.me/*',
+      '*://*.mangalib.org/*',
       '*://*.hentailib.me/*',
+      '*://api.imglib.info/*',
+      '*://api.lib.social/*',
       '*://api.cdnlibs.org/*',
-      '*://hapi.hentaicdn.org/*',
       '*://cover.imglib.info/*',
       '*://*.senkuro.com/*',
       '*://api.senkuro.com/*',

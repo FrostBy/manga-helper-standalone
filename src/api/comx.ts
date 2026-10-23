@@ -202,10 +202,11 @@ export class ComXAPI extends BasePlatformAPI {
    * Titles render as "Original Name / Русское название" — split so either side
    * can match the source platform's title list.
    */
-  private parseSearchResults(html: string): Array<{ slug: string; names: string[] }> {
+  private parseSearchResults(html: string): Array<{ slug: string; names: string[]; image?: string }> {
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    const results: Array<{ slug: string; names: string[] }> = [];
+    const results: Array<{ slug: string; names: string[]; image?: string }> = [];
     const seen = new Set<string>();
+    const images = new Map<string, string>();
 
     for (const link of doc.querySelectorAll('a[href*=".html"]')) {
       const href = link.getAttribute('href');
@@ -214,6 +215,10 @@ export class ComXAPI extends BasePlatformAPI {
       const slug = this.getSlugFromURL(new URL(href, BASE_URL).href);
       if (!slug || seen.has(slug)) continue;
 
+      // The cover is a separate, textless link before the title link; its img is lazy, the real URL is in data-src.
+      const cover = link.querySelector('img')?.getAttribute('data-src');
+      if (cover) images.set(slug, new URL(cover, BASE_URL).href);
+
       const text = link.textContent?.replace(/\s+/g, ' ').trim();
       if (!text) continue;
 
@@ -221,6 +226,7 @@ export class ComXAPI extends BasePlatformAPI {
       results.push({
         slug,
         names: text.split('/').map((part) => part.trim()).filter(Boolean),
+        image: images.get(slug),
       });
     }
 
@@ -393,7 +399,7 @@ export class ComXAPI extends BasePlatformAPI {
   /**
    * Simple search by query - for popup use
    */
-  async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }>> {
+  async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }> | null> {
     const html = await this.fetchPage(`${BASE_URL}/index.php?do=search`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -406,11 +412,11 @@ export class ComXAPI extends BasePlatformAPI {
         story: query,
       }).toString(),
     });
-    if (!html) return [];
+    if (!html) return null;
 
     return this.parseSearchResults(html)
       .slice(0, 5)
-      .map(({ slug, names }) => ({ title: names.join(' / '), slug }));
+      .map(({ slug, names, image }) => ({ title: names.join(' / '), slug, image }));
   }
 
   /**

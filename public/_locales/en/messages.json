@@ -50,6 +50,9 @@
   "loadFailed": {
     "message": "Couldn't load — press refresh"
   },
+  "searchFailed": {
+    "message": "Couldn't load"
+  },
   "onboardingText": {
     "message": "Click the extension icon to discover more features"
   },

@@ -2,9 +2,7 @@ import { BaseRouter } from '@/src/router';
 import type { RoutesConfig } from '@/src/router';
 import type { PlatformKey } from '@/src/types';
 import { tokens } from '@/src/utils/storage';
-import { resolveActiveDomain } from '@/src/utils/mirrors';
-import { config } from './config';
-import { MANGALIB_MIRROR_CONFIGS } from '@/src/api/mangalib';
+import { mangalibAPI } from '@/src/api';
 import { MangaPage, ChapterPage } from './pages';
 
 export class MangaLibRouter extends BaseRouter {
@@ -26,17 +24,16 @@ export class MangaLibRouter extends BaseRouter {
     // Add body class for scoped styles
     document.body.classList.add('mangalib');
 
-    // Extract and save auth token from localStorage
-    const activeDomain = resolveActiveDomain(config);
-    const tokenKey = MANGALIB_MIRROR_CONFIGS[activeDomain]?.tokenKey ?? 'mangalib';
+    // One key for MangaLib and HentaiLib: one account, accepted by every API host.
     try {
       const auth = JSON.parse(localStorage.getItem('auth') || '{}');
       const token = auth?.token?.access_token;
       if (token) {
-        await tokens.set(tokenKey, token);
+        await tokens.set(this.platformKey, token);
       }
     } catch {
       // Ignore parse errors
     }
+    await mangalibAPI.claimPage(window.location.href);
   }
 }

@@ -4,9 +4,6 @@
  */
 import { render } from 'preact';
 import { SenkuroRouter } from '@/src/platforms/senkuro.com';
-import { config as senkuroConfig } from '@/src/platforms/senkuro.com/config';
-import { senkuroAPI } from '@/src/api';
-import { resolveActiveDomain } from '@/src/utils/mirrors';
 import { initLogger, Logger } from '@/src/utils';
 import { setSiteLoader } from '@/src/components/SiteLoader';
 import { senkuroLoader } from '@/src/components/siteLoaders';
@@ -29,12 +26,6 @@ export default defineContentScript({
   async main() {
     await initLogger();
     setSiteLoader(senkuroLoader);
-
-    // Apply mirror config if we're on a mirror domain
-    const activeDomain = resolveActiveDomain(senkuroConfig);
-    if (activeDomain !== senkuroConfig.domain) {
-      senkuroAPI.applyMirror(activeDomain);
-    }
 
     Logger.info('Senkuro', 'Content script loaded');
 

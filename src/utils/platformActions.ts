@@ -194,6 +194,9 @@ export async function handleRefresh(
   const manualSlug = store.manualLinks[platformKey];
   if (manualSlug === false) return;
 
+  // Back to the primary hosts: the VPN that blocked them may be off now.
+  await getAPI(platformKey).forgetHosts();
+
   // Storage only — the row keeps its old numbers until fresh ones arrive.
   if (typeof manualSlug === 'string') {
     await cache.delete(platformKey, manualSlug);

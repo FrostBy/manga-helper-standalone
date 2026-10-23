@@ -4,5 +4,4 @@ export const config: PlatformConfig = {
   key: 'senkuro',
   domain: 'senkuro.com',
   title: 'Senkuro',
-  mirrors: ['senkognito.com'],
 };

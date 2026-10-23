@@ -2,9 +2,7 @@ import { BaseRouter } from '@/src/router';
 import type { RoutesConfig } from '@/src/router';
 import type { PlatformKey } from '@/src/types';
 import { tokens } from '@/src/utils/storage';
-import { resolveActiveDomain } from '@/src/utils/mirrors';
-import { SENKURO_MIRROR_CONFIGS } from '@/src/api/senkuro';
-import { config } from './config';
+import { senkuroAPI } from '@/src/api';
 import { MangaPage, ChapterPage } from './pages';
 
 export class SenkuroRouter extends BaseRouter {
@@ -25,14 +23,12 @@ export class SenkuroRouter extends BaseRouter {
   protected async preInit(): Promise<void> {
     document.body.classList.add('senkuro');
 
-    // Get auth token from cookie
-    const activeDomain = resolveActiveDomain(config);
-    const tokenKey = SENKURO_MIRROR_CONFIGS[activeDomain]?.tokenKey ?? this.platformKey;
-
+    // One key for senkuro and senkognito: a token from either works on every API host.
     const token = this.getCookie('access_token');
     if (token) {
-      await tokens.set(tokenKey, token);
+      await tokens.set(this.platformKey, token);
     }
+    await senkuroAPI.claimPage(window.location.href);
   }
 
   private getCookie(name: string): string | null {

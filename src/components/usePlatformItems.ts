@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'preact/hooks';
 import { useMappingsStore } from '@/src/stores/mappings';
+import { subscribeMirrors } from '@/src/utils/mirrors';
 import { useMangaStore } from '@/src/stores/manga';
 import { PlatformRegistry } from '@/src/platforms/PlatformRegistry';
 import type { PlatformKey } from '@/src/types';
@@ -37,6 +39,8 @@ export function usePlatformItems(
 
   const openModal = useMangaStore((s) => s.openModal);
   const freeChapters = useMangaStore((s) => s.freeChapters);
+  const [, rerender] = useState(0);
+  useEffect(() => subscribeMirrors(() => rerender((n) => n + 1)), []);
 
   if (!currentPlatform) return null;
 
@@ -72,7 +76,7 @@ export function usePlatformItems(
     const hasMapping = typeof targetSlug === 'string';
     const manuallyDisabled = disabledMap[key] === true;
     const disabled = manuallyDisabled || targetSlug === false;
-    const url = hasMapping ? api.link(targetSlug) : `https://${api.config.domain}`;
+    const url = hasMapping ? api.link(targetSlug) : api.siteUrl();
     const modalUrl = hasMapping ? api.link(targetSlug) : '';
     const { chapter, read: lastChapterRead } = getDisplay(key);
     const cached = cachedResults[key];

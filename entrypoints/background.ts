@@ -169,9 +169,10 @@ async function visitInBackgroundTab(url: string): Promise<boolean> {
  */
 const ALLOWED_FETCH_HOST_SUFFIXES = [
   'mangalib.me',
+  'mangalib.org',
   'hentailib.me',
+  'lib.social',
   'cdnlibs.org',
-  'hentaicdn.org',
   'imglib.info',
   'senkuro.com',
   'senkuro.me',
@@ -320,7 +321,6 @@ const REFERER_RULES: Array<{
 }> = [
   { urlFilter: '||cover.imglib.info/*', referer: 'https://mangalib.me/', resourceTypes: [browser.declarativeNetRequest.ResourceType.IMAGE] },
   { urlFilter: '||api.cdnlibs.org/*', referer: 'https://mangalib.me/' },
-  { urlFilter: '||hapi.hentaicdn.org/*', referer: 'https://hentailib.me/' },
 ];
 
 /**

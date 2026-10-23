@@ -1,13 +1,29 @@
 /**
- * MangaLib API
- * Uses api.cdnlibs.org REST API
+ * MangaLib API — the Lib ecosystem (MangaLib, HentaiLib) through its REST API
  */
 
-import { BasePlatformAPI } from './base';
+import { BasePlatformAPI, type QueryItem } from './base';
 import { Logger } from '@/src/utils/logger';
 import { parseSlugFromUrl } from '@/src/utils/urlValidation';
 import { titlesMatch } from '@/src/utils/manga';
+import { currentHost, setTitleChain, titleChain } from '@/src/utils/mirrors';
+import type { HostPool } from '@/src/utils/hostPool';
 import type { PlatformConfig, PlatformKey, SearchResult, Manga, ChaptersResponse, Bookmark, Chapter } from '@/src/types';
+
+/** One API for every Lib site; the `Site-Id` header picks the catalog. */
+const API_POOL: HostPool = {
+  id: 'lib:api',
+  hosts: ['https://api.imglib.info', 'https://api.lib.social', 'https://api2.mangalib.me', 'https://api.cdnlibs.org'],
+};
+
+type LibChain = 'manga' | 'hentai';
+
+/** Separate catalogs: a hentai title answers 404 under the manga Site-Id. */
+const CHAINS: Record<LibChain, { siteId: string; group: string; sites: HostPool }> = {
+  manga: { siteId: '1', group: 'MangaLib', sites: { id: 'lib:manga', hosts: ['https://mangalib.me', 'https://mangalib.org'] } },
+  hentai: { siteId: '4', group: 'HentaiLib', sites: { id: 'lib:hentai', hosts: ['https://hentailib.me', 'https://kz.hentailib.me'] } },
+};
+const CHAIN_ORDER: LibChain[] = ['manga', 'hentai'];
 
 /** R4.3: MangaLib-specific chapter with paid-access branch metadata.
  * `item_number` — cumulative ordinal across all volumes (1, 2, ..., 95).
@@ -23,22 +39,6 @@ export interface MangaLibChapter extends Chapter {
 interface MangaLibChaptersResponse {
   data: MangaLibChapter[];
 }
-
-const DEFAULT_API_BASE = 'https://api.cdnlibs.org/api/manga';
-
-interface MirrorConfig {
-  apiBase: string;
-  siteId: string;
-  tokenKey: string;
-}
-
-export const MANGALIB_MIRROR_CONFIGS: Record<string, MirrorConfig> = {
-  'hentailib.me': {
-    apiBase: 'https://hapi.hentaicdn.org/api/manga',
-    siteId: '4',
-    tokenKey: 'hentailib',
-  },
-};
 
 /**
  * MangaLib Search API Response DTO
@@ -151,23 +151,23 @@ export class MangaLibAPI extends BasePlatformAPI {
     title: 'Mangalib',
   };
 
-  private apiBase = DEFAULT_API_BASE;
-  private siteId = '1';
-  private domainUrl = 'https://mangalib.me';
+  protected apiPool = API_POOL;
+  protected sitePools = { manga: CHAINS.manga.sites, hentai: CHAINS.hentai.sites };
 
-  /** Apply mirror config by domain */
-  applyMirror(domain: string): void {
-    const mirror = MANGALIB_MIRROR_CONFIGS[domain];
-    if (mirror) {
-      this.apiBase = mirror.apiBase;
-      this.siteId = mirror.siteId;
-      this.domainUrl = `https://${domain}`;
-      this.tokenKey = mirror.tokenKey;
-    }
+  link(slug: string, chain?: string): string {
+    const { sites } = CHAINS[(chain ?? titleChain('mangalib', slug)) as LibChain] ?? CHAINS.manga;
+    return `${currentHost(sites)}/ru/manga/${slug}`;
   }
 
-  link(slug: string): string {
-    return `${this.domainUrl}/ru/manga/${slug}`;
+  private async api<T>(path: string, chain: LibChain, notFoundIsAnswer = false): Promise<T | null> {
+    const token = await this.getToken();
+    const headers: Record<string, string> = { 'site-id': CHAINS[chain].siteId };
+    if (token) headers.authorization = `Bearer ${token}`;
+    return this.fetchPool<T>(API_POOL, `/api/manga${path}`, { headers }, { notFoundIsAnswer });
+  }
+
+  private chainOf(slug: string): LibChain {
+    return titleChain('mangalib', slug) as LibChain;
   }
 
   getSlugFromURL(url: string): string | null {
@@ -188,27 +188,16 @@ export class MangaLibAPI extends BasePlatformAPI {
     signal?: AbortSignal
   ): Promise<SearchResult | null> {
     Logger.debug(this.config.key, 'Search started', { titles });
+    const failedBefore = this.failedFetches;
 
-    const token = await this.getToken();
-    const headers: Record<string, string> = {
-      'site-id': this.siteId,
-    };
-
-    if (token) {
-      headers['authorization'] = `Bearer ${token}`;
-    }
-
-    // Try each title until we find a match
-    for (const title of titles) {
+    // Catalogs are searched separately: a combined site_id query returns only manga.
+    for (const chain of CHAIN_ORDER) for (const title of titles) {
       if (signal?.aborted) return null;
 
-      const params = new URLSearchParams({
-        q: title,
-        'site_id[]': this.siteId,
-      });
-
-      const url = `${this.apiBase}?${params}`;
-      const response = await this.fetch<MangaLibSearchResponse>(url, { headers });
+      const params = new URLSearchParams({ q: title, 'site_id[]': CHAINS[chain].siteId });
+      const response = await this.api<MangaLibSearchResponse>(`?${params}`, chain);
+      // Every host already failed with its retries — the other titles would too.
+      if (!response && this.failedFetches > failedBefore) return null;
       const items = response?.data ?? [];
 
       // Search is fuzzy — its top hit is often a different title, so a result
@@ -217,8 +206,9 @@ export class MangaLibAPI extends BasePlatformAPI {
       let foundSlug = items.find((item) =>
         titlesMatch([item.name, item.rus_name, item.eng_name], titles)
       )?.slug_url;
-      if (!foundSlug && items[0]?.slug_url && titlesMatch(await this.getTitles(items[0].slug_url), titles)) {
-        foundSlug = items[0].slug_url;
+      const topSlug = items[0]?.slug_url;
+      if (!foundSlug && topSlug && titlesMatch(this.titlesOf(await this.getManga(topSlug, chain)), titles)) {
+        foundSlug = topSlug;
       }
 
       Logger.debug(this.config.key, 'Search result for title', { title, found: foundSlug ?? null });
@@ -226,7 +216,7 @@ export class MangaLibAPI extends BasePlatformAPI {
       if (foundSlug) {
         if (signal?.aborted) return null;
 
-        // Get chapter data and cache it
+        await setTitleChain('mangalib', foundSlug, chain);
         const data = await this.getData(foundSlug);
         if (data) {
           Logger.debug(this.config.key, 'Match found', foundSlug);
@@ -242,68 +232,41 @@ export class MangaLibAPI extends BasePlatformAPI {
   }
 
   /**
-   * Get manga metadata
+   * Metadata answers only under the title's own catalog: the known one is tried
+   * first, then the rest — titles move between catalogs, and a manual link
+   * arrives with none known.
    */
-  async getManga(slug: string): Promise<Manga | null> {
-    const token = await this.getToken();
-    const headers: Record<string, string> = {
-      'site-id': this.siteId,
-    };
+  getManga(slug: string, preferred?: LibChain): Promise<Manga | null> {
+    return this.shared(`meta:${slug}`, async () => {
+      const first = preferred ?? this.chainOf(slug);
+      for (const chain of [first, ...CHAIN_ORDER.filter((c) => c !== first)]) {
+        const response = await this.api<MangaLibMeta>(`/${slug}?fields[]=eng_name&fields[]=otherNames`, chain, true);
+        if (!response?.data) continue;
 
-    if (token) {
-      headers['authorization'] = `Bearer ${token}`;
-    }
-
-    const url = `${this.apiBase}/${slug}?fields[]=eng_name&fields[]=otherNames`;
-    const response = await this.fetch<MangaLibMeta>(url, { headers });
-
-    if (!response?.data) return null;
-
-    const { data } = response;
-    return {
-      slug,
-      name: data.name || slug,
-      rus_name: data.rus_name,
-      eng_name: data.eng_name,
-      otherNames: data.otherNames,
-      cover: data.cover?.default,
-      isLicensed: data.is_licensed === true,
-    };
+        await setTitleChain('mangalib', slug, chain);
+        this.probeSiteHost(CHAINS[chain].sites);
+        const { data } = response;
+        return {
+          slug,
+          name: data.name || slug,
+          rus_name: data.rus_name,
+          eng_name: data.eng_name,
+          otherNames: data.otherNames,
+          cover: data.cover?.default,
+          isLicensed: data.is_licensed === true,
+        };
+      }
+      return null;
+    });
   }
 
-  /**
-   * Get chapters list
-   */
   async getChapters(slug: string): Promise<ChaptersResponse | null> {
-    const token = await this.getToken();
-    const headers: Record<string, string> = {
-      'site-id': this.siteId,
-    };
-
-    if (token) {
-      headers['authorization'] = `Bearer ${token}`;
-    }
-
-    const url = `${this.apiBase}/${slug}/chapters`;
-    return this.fetch<ChaptersResponse>(url, { headers });
+    return this.api<ChaptersResponse>(`/${slug}/chapters`, this.chainOf(slug), true);
   }
 
-  /**
-   * Get user's bookmark/progress
-   */
   async getBookmark(slug: string): Promise<Bookmark | null> {
-    const token = await this.getToken();
-
-    // Bookmark requires authentication
-    if (!token) return null;
-
-    const headers: Record<string, string> = {
-      'site-id': this.siteId,
-      'authorization': `Bearer ${token}`,
-    };
-
-    const url = `${this.apiBase}/${slug}/bookmark`;
-    const response = await this.fetch<MangaLibBookmarkResponse>(url, { headers });
+    if (!(await this.getToken())) return null;
+    const response = await this.api<MangaLibBookmarkResponse>(`/${slug}/bookmark`, this.chainOf(slug), true);
 
     if (!response?.data) return null;
 
@@ -330,19 +293,15 @@ export class MangaLibAPI extends BasePlatformAPI {
       return this.prepareResponse(slug, cached.chapter, cached.lastChapterRead);
     }
 
-    // Fetch chapters (typed with MangaLib branches for paid-access filter)
-    const token = await this.getToken();
-    const chHeaders: Record<string, string> = { 'site-id': this.siteId };
-    if (token) chHeaders['authorization'] = `Bearer ${token}`;
-    const [chapters, manga] = await Promise.all([
-      this.fetch<MangaLibChaptersResponse>(`${this.apiBase}/${slug}/chapters`, { headers: chHeaders }),
-      this.getManga(slug),
+    // Metadata first: it settles the title's catalog the bookmark is asked under.
+    const manga = await this.getManga(slug);
+    const [chapters, bookmark] = await Promise.all([
+      this.api<MangaLibChaptersResponse>(`/${slug}/chapters`, this.chainOf(slug), true),
+      this.getBookmark(slug),
     ]);
     if (!chapters?.data) return null;
 
     const lastChapter = lastAvailableChapter(chapters.data, manga?.isLicensed === true);
-
-    const bookmark = await this.getBookmark(slug);
     const lastChapterRead = bookmark?.lastChapterRead ?? 0;
 
     // Cache result
@@ -351,21 +310,24 @@ export class MangaLibAPI extends BasePlatformAPI {
     return this.prepareResponse(slug, lastChapter, lastChapterRead);
   }
 
-  /**
-   * Simple search by query - for popup use
-   */
-  async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }>> {
-    const params = new URLSearchParams({ q: query, 'site_id[]': this.siteId });
-    const url = `${this.apiBase}?${params}`;
-    const response = await this.fetch<MangaLibSearchResponse>(url, { headers: { 'site-id': this.siteId } });
-
-    if (!response?.data) return [];
-
-    return response.data.slice(0, 5).map((item) => ({
-      title: item.rus_name || item.name || item.slug_url || '',
-      slug: item.slug_url || '',
-      image: item.cover?.thumbnail,
-    }));
+  async searchByQuery(query: string): Promise<QueryItem[] | null> {
+    const perChain = await Promise.all(
+      CHAIN_ORDER.map(async (chain): Promise<QueryItem[] | null> => {
+        const params = new URLSearchParams({ q: query, 'site_id[]': CHAINS[chain].siteId });
+        const response = await this.api<MangaLibSearchResponse>(`?${params}`, chain);
+        if (!response) return null;
+        this.probeSiteHost(CHAINS[chain].sites);
+        return (response.data ?? []).map((item) => ({
+          title: item.rus_name || item.name || item.slug_url || '',
+          slug: item.slug_url || '',
+          image: item.cover?.thumbnail,
+          chain,
+          group: CHAINS[chain].group,
+        }));
+      })
+    );
+    if (perChain.every((items) => items === null)) return null;
+    return perChain.flatMap((items, i) => items ?? [{ failedGroup: CHAINS[CHAIN_ORDER[i]].group }]);
   }
 
   /**

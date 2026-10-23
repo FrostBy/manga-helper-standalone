@@ -1,6 +1,6 @@
 {
   "name": "manga-helper",
-  "version": "2026.10.14",
+  "version": "2026.10.23",
   "description": "Cross-platform manga tracker",
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "dev:firefox": "wxt -b firefox",
     "build": "wxt build",
     "build:dev": "wxt build --mode development",
-    "test": "node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/manga.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/lock.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/inkstoryProgress.check.ts",
+    "test": "node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/manga.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/lock.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/inkstoryProgress.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/readmangaChapters.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/utils/hostPool.check.ts && node --experimental-transform-types --import ./scripts/resolve-ts.mjs src/api/senkuroChain.check.ts",
     "build:firefox": "wxt build -b firefox",
     "build:obf": "cross-env OBFUSCATE=true wxt build",
     "build:obf:firefox": "cross-env OBFUSCATE=true wxt build -b firefox",

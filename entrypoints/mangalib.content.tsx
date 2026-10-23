@@ -8,9 +8,6 @@ import { initLogger, Logger } from '@/src/utils';
 import { setSiteLoader } from '@/src/components/SiteLoader';
 import { mangalibLoader } from '@/src/components/siteLoaders';
 import { OnboardingTooltip } from '@/src/components/OnboardingTooltip';
-import { resolveActiveDomain } from '@/src/utils/mirrors';
-import { config as mangalibConfig } from '@/src/platforms/mangalib.me/config';
-import { mangalibAPI } from '@/src/api/mangalib';
 import '@/src/platforms/mangalib.me/styles.scss';
 import '@/src/styles/shared.scss';
 
@@ -23,18 +20,12 @@ import '@/src/platforms/inkstory.net/api';
 import '@/src/platforms/com-x.life/api';
 
 export default defineContentScript({
-  matches: ['*://*.mangalib.me/*', '*://*.hentailib.me/*'],
+  matches: ['*://*.mangalib.me/*', '*://*.mangalib.org/*', '*://*.hentailib.me/*'],
   runAt: 'document_end',
 
   async main() {
     await initLogger();
     setSiteLoader(mangalibLoader);
-
-    // Apply mirror config if we're on a mirror domain
-    const activeDomain = resolveActiveDomain(mangalibConfig);
-    if (activeDomain !== mangalibConfig.domain) {
-      mangalibAPI.applyMirror(activeDomain);
-    }
 
     Logger.info('MangaLib', 'Content script loaded');
 

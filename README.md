@@ -19,8 +19,9 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 - **Mark as unavailable** — Explicitly mark a platform as unavailable (e.g. blocked by the copyright holder); it moves to the bottom of the list and is skipped by auto-refresh
 - **Chapter comparison** — Highlights platforms that have more chapters available; licensed MangaLib titles count all chapters, not just the open preview
 - **Load status** — A platform that failed to load is marked with ⚠ instead of showing 0; numbers past their cache lifetime are dimmed until refreshed
+- **Mirrors** — If a site or its API is blocked, MangaLib and Senkuro requests and links switch to a working mirror; refresh starts from the main host again
 - **Native look** — The button, dropdown and loading spinner follow each site's own style; the dropdown opens when a manga page loads
-- **Popup search** — Search manga across all platforms from the extension popup with cover thumbnails
+- **Popup search** — Search manga across all platforms from the extension popup with cover thumbnails; results are grouped by site (MangaLib / HentaiLib, Senkuro / Senkognito)
 - **Debug logging** — Configurable log level (DEBUG/INFO/WARN/ERROR/OFF) in popup settings
 - **Caching** — Results are cached to minimize API requests
 
@@ -28,7 +29,7 @@ Cross-platform manga tracker browser extension. Track your reading progress acro
 
 | Platform | Domain | Status |
 |----------|--------|--------|
-| MangaLib | mangalib.me, hentailib.me | ✅ Full support |
+| MangaLib | mangalib.me, mangalib.org, hentailib.me | ✅ Full support |
 | Senkuro | senkuro.com, senkuro.me, senkognito.com | ✅ Full support |
 | MangaBuff | mangabuff.ru | ✅ Full support |
 | ReadManga | readmanga.io, zazaza.me | ✅ Full support |

@@ -199,11 +199,12 @@ export class InkstoryAPI extends BasePlatformAPI {
   /**
    * Simple search by query - for popup use
    */
-  async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }>> {
+  async searchByQuery(query: string): Promise<Array<{ title: string; slug: string; image?: string }> | null> {
     const url = `${API_URL}/books?search=${encodeURIComponent(query)}&ignoreUserScopedContentStatus=true&serviceName=inkstory`;
     const response = await this.fetch<InkstorySearchResult>(url);
 
-    if (!response || !Array.isArray(response)) return [];
+    if (!response) return null;
+    if (!Array.isArray(response)) return [];
 
     return response.slice(0, 5).map((item) => ({
       title: item.name?.ru || item.name?.en || Object.values(item.name || {})[0] || item.slug || '',

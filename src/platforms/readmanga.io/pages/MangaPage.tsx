@@ -30,6 +30,8 @@ export class MangaPage extends BasePage {
     Logger.debug('ReadManga', 'initialize started');
     await waitForElement('.read-first-chapter');
     Logger.debug('ReadManga', 'read-first-chapter found');
+    // Before the data load: switching seconds later yanks away a tab the user already picked.
+    this.selectChaptersTab();
 
     const slug = this.getSlugFromUrl();
     Logger.debug('ReadManga', 'slug', slug);
@@ -42,9 +44,6 @@ export class MangaPage extends BasePage {
 
   async render(): Promise<void> {
     Logger.debug('ReadManga', 'render started');
-
-    // Select chapters tab on load
-    this.selectChaptersTab();
 
     // Render reading progress in chapters tab
     this.renderChaptersInTab();
@@ -62,17 +61,14 @@ export class MangaPage extends BasePage {
   }
 
   /**
-   * Click the "Chapters" tab to show chapters list on load
+   * Both spellings: Bootstrap 5 marks tabs with `data-bs-target`, 4 with
+   * `data-target`; the site has shipped both.
    */
   private selectChaptersTab(): void {
-    const tabItems = document.querySelectorAll('.cr-tabs-list__item[data-toggle="tab"]');
-    for (const tab of tabItems) {
-      if (tab.getAttribute('data-target') === '#tab-content') {
-        this.chaptersTab = tab as HTMLElement;
-        (tab as HTMLElement).click();
-        break;
-      }
-    }
+    this.chaptersTab = document.querySelector<HTMLElement>(
+      '.cr-tabs-list__item[data-bs-target="#tab-content"], .cr-tabs-list__item[data-target="#tab-content"]'
+    );
+    this.chaptersTab?.click();
   }
 
   /**

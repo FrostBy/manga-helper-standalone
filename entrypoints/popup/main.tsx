@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect } from 'preact/hooks';
 import { Island, useAds } from '@/src/islands/Island';
 import { logLevelItem, LogLevel } from '@/src/utils/logger';
 import { mangalibAPI, senkuroAPI, mangabuffAPI, readmangaAPI, inkstoryAPI, comxAPI } from '@/src/api';
+import type { BasePlatformAPI, QueryItem, QueryResult } from '@/src/api/base';
 import './style.scss';
 
 const AD_SLOTS = ['popup-banner', 'popup-skyscraper'];
@@ -19,16 +20,17 @@ interface PopupSearchResult {
 }
 
 interface GroupedResults {
-  [platformKey: string]: {
+  [groupKey: string]: {
     title: string;
     results: PopupSearchResult[];
+    failed: boolean;
   };
 }
 
-// Platform configs for popup search
-const PLATFORMS = {
-  mangalib: { api: mangalibAPI, title: 'MangaLib' },
-  senkuro: { api: senkuroAPI, title: 'Senkuro' },
+/** `groups` lists every site of a platform, so an empty one still says "not found". */
+const PLATFORMS: Record<string, { api: BasePlatformAPI; title: string; groups?: string[] }> = {
+  mangalib: { api: mangalibAPI, title: 'MangaLib', groups: ['MangaLib', 'HentaiLib'] },
+  senkuro: { api: senkuroAPI, title: 'Senkuro', groups: ['Senkuro', 'Senkognito'] },
   mangabuff: { api: mangabuffAPI, title: 'MangaBuff' },
   readmanga: { api: readmangaAPI, title: 'ReadManga' },
   inkstory: { api: inkstoryAPI, title: 'Inkstory' },
@@ -101,23 +103,31 @@ function App() {
     const grouped: GroupedResults = {};
 
     // Search all platforms in parallel using API methods
-    const searches = Object.entries(PLATFORMS).map(async ([key, { api, title }]) => {
+    const searches = Object.entries(PLATFORMS).map(async ([key, { api, title, groups }]) => {
+      let items: QueryItem[] | null = null;
       try {
-        const results = await api.searchByQuery(query.trim());
-        grouped[key] = {
-          title,
-          results: results.map((r) => ({
-            platform: title,
-            platformKey: key,
-            title: r.title,
-            url: api.link(r.slug),
-            slug: r.slug,
-            image: r.image,
-          })),
-        };
+        items = await api.searchByQuery(query.trim());
       } catch (e) {
         console.error(`Search failed for ${key}:`, e);
-        grouped[key] = { title, results: [] };
+      }
+      const results = (items ?? []).filter((item): item is QueryResult => !('failedGroup' in item));
+      const failedGroups = new Set((items ?? []).flatMap((item) => ('failedGroup' in item ? [item.failedGroup] : [])));
+      for (const group of groups ?? [title]) {
+        grouped[`${key}:${group}`] = {
+          title: group,
+          failed: items === null || failedGroups.has(group),
+          results: results
+            .filter((r) => (r.group ?? title) === group)
+            .slice(0, 5)
+            .map((r) => ({
+              platform: group,
+              platformKey: key,
+              title: r.title,
+              url: api.link(r.slug, r.chain),
+              slug: r.slug,
+              image: r.image,
+            })),
+        };
       }
     });
 
@@ -190,7 +200,7 @@ function App() {
       <div class="results">
         {loading && <div class="loading">{browser.i18n.getMessage('searching') || 'Searching...'}</div>}
 
-        {!loading && searched && totalResults === 0 && (
+        {!loading && searched && totalResults === 0 && !Object.values(results).some((g) => g.failed) && (
           <div class="no-results">{browser.i18n.getMessage('noResults') || 'No results found'}</div>
         )}
 
@@ -202,7 +212,11 @@ function App() {
               <div class="platform-header">{group.title}</div>
               <div class="platform-results">
                 {group.results.length === 0 ? (
-                  <div class="platform-no-results">{browser.i18n.getMessage('notFound') || 'Not found'}</div>
+                  <div class="platform-no-results">
+                    {group.failed
+                      ? browser.i18n.getMessage('searchFailed') || 'Failed to load'
+                      : browser.i18n.getMessage('notFound') || 'Not found'}
+                  </div>
                 ) : (
                   group.results.map((result, i) => (
                     <div class="result-item" key={i} onClick={() => openLink(result.url)}>
